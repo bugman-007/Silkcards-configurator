@@ -1,0 +1,549 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Silkcards Configurator - Phase 1</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+    
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+      overflow: hidden;
+      background: #f5f5f0;
+      color: #333;
+      height: 100vh;
+      display: flex;
+    }
+
+    /* Main Layout - Two Panels */
+    .main-container {
+      display: flex;
+      width: 100%;
+      height: 100vh;
+    }
+
+    /* Left Panel - Preview */
+    .preview-panel {
+      flex: 1;
+      position: relative;
+      background: #f5f5f0;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .preview-header {
+      padding: 20px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      border-bottom: 1px solid rgba(0, 0, 0, 0.1);
+    }
+
+    .preview-title {
+      font-size: 18px;
+      font-weight: 600;
+      color: #333;
+    }
+
+    .preview-controls {
+      display: flex;
+      gap: 10px;
+    }
+
+    .preview-btn {
+      width: 40px;
+      height: 40px;
+      border: 1px solid rgba(0, 0, 0, 0.1);
+      background: white;
+      border-radius: 4px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: all 0.2s;
+    }
+
+    .preview-btn:hover {
+      background: #f0f0f0;
+      border-color: rgba(0, 0, 0, 0.2);
+    }
+
+    .preview-btn svg {
+      width: 20px;
+      height: 20px;
+      fill: #666;
+    }
+
+    #canvas-container {
+      flex: 1;
+      position: relative;
+      overflow: hidden;
+    }
+
+    #canvas {
+      display: block;
+      width: 100%;
+      height: 100%;
+    }
+
+    /* Fullscreen mode */
+    .preview-panel.fullscreen {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100vw;
+      height: 100vh;
+      z-index: 1000;
+    }
+
+    /* Right Panel - Configurator */
+    .configurator-panel {
+      width: 450px;
+      background: white;
+      display: flex;
+      flex-direction: column;
+      border-left: 1px solid rgba(0, 0, 0, 0.1);
+      overflow: hidden;
+    }
+
+    .configurator-header {
+      padding: 24px;
+      border-bottom: 1px solid rgba(0, 0, 0, 0.1);
+      background: white;
+    }
+
+    .breadcrumb {
+      font-size: 12px;
+      color: #666;
+      margin-bottom: 12px;
+    }
+
+    .breadcrumb a {
+      color: #666;
+      text-decoration: none;
+    }
+
+    .breadcrumb a:hover {
+      text-decoration: underline;
+    }
+
+    .rating {
+      font-size: 13px;
+      color: #666;
+      margin-bottom: 16px;
+    }
+
+    .configurator-title {
+      font-size: 28px;
+      font-weight: 600;
+      color: #333;
+      margin-bottom: 20px;
+    }
+
+    .step-navigation {
+      display: flex;
+      gap: 8px;
+      overflow-x: auto;
+      padding-bottom: 8px;
+      scrollbar-width: none;
+      -ms-overflow-style: none;
+    }
+
+    .step-navigation::-webkit-scrollbar {
+      display: none;
+    }
+
+    .step-btn {
+      padding: 8px 16px;
+      background: transparent;
+      border: none;
+      border-bottom: 2px solid transparent;
+      color: #666;
+      font-size: 13px;
+      cursor: pointer;
+      white-space: nowrap;
+      transition: all 0.2s;
+    }
+
+    .step-btn:hover {
+      color: #333;
+    }
+
+    .step-btn.active {
+      color: #333;
+      border-bottom-color: #ff6b35;
+      font-weight: 500;
+    }
+
+    /* Scrollable Content Area */
+    .configurator-content {
+      flex: 1;
+      overflow-y: auto;
+      padding: 24px;
+      scrollbar-width: thin;
+      scrollbar-color: rgba(0, 0, 0, 0.1) transparent;
+    }
+
+    .configurator-content::-webkit-scrollbar {
+      width: 6px;
+    }
+
+    .configurator-content::-webkit-scrollbar-track {
+      background: transparent;
+    }
+
+    .configurator-content::-webkit-scrollbar-thumb {
+      background: rgba(0, 0, 0, 0.1);
+      border-radius: 3px;
+    }
+
+    .configurator-content::-webkit-scrollbar-thumb:hover {
+      background: rgba(0, 0, 0, 0.15);
+    }
+
+    .config-section {
+      margin-bottom: 32px;
+    }
+
+    .config-section-title {
+      font-size: 16px;
+      font-weight: 600;
+      color: #333;
+      margin-bottom: 16px;
+    }
+
+    .control-group {
+      margin-bottom: 20px;
+    }
+
+    .control-group label {
+      display: block;
+      font-size: 13px;
+      font-weight: 500;
+      color: #333;
+      margin-bottom: 8px;
+    }
+
+    .control-group input[type="range"] {
+      width: 100%;
+      height: 6px;
+      border-radius: 3px;
+      background: #e0e0e0;
+      outline: none;
+      -webkit-appearance: none;
+      appearance: none;
+    }
+
+    .control-group input[type="range"]::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      appearance: none;
+      width: 18px;
+      height: 18px;
+      border-radius: 50%;
+      background: #ff6b35;
+      cursor: pointer;
+    }
+
+    .control-group input[type="range"]::-moz-range-thumb {
+      width: 18px;
+      height: 18px;
+      border-radius: 50%;
+      background: #ff6b35;
+      cursor: pointer;
+      border: none;
+    }
+
+    .control-group .value {
+      font-size: 12px;
+      color: #666;
+      margin-top: 4px;
+    }
+
+    .option-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 12px;
+      margin-top: 12px;
+    }
+
+    .option-item {
+      border: 2px solid #e0e0e0;
+      border-radius: 8px;
+      padding: 12px;
+      cursor: pointer;
+      transition: all 0.2s;
+      text-align: center;
+    }
+
+    .option-item:hover {
+      border-color: #ff6b35;
+    }
+
+    .option-item.selected {
+      border-color: #ff6b35;
+      background: rgba(255, 107, 53, 0.05);
+    }
+
+    .option-item-name {
+      font-size: 13px;
+      font-weight: 500;
+      color: #333;
+      margin-top: 8px;
+    }
+
+    .option-item-price {
+      font-size: 12px;
+      color: #666;
+      margin-top: 4px;
+    }
+
+    .color-swatches {
+      display: flex;
+      gap: 12px;
+      flex-wrap: wrap;
+      margin-top: 12px;
+    }
+
+    .color-swatch {
+      width: 40px;
+      height: 40px;
+      border-radius: 50%;
+      border: 2px solid #e0e0e0;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+
+    .color-swatch:hover {
+      transform: scale(1.1);
+    }
+
+    .color-swatch.selected {
+      border-color: #ff6b35;
+      border-width: 3px;
+    }
+
+    .toggle-group {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      margin-top: 12px;
+    }
+
+    .toggle-btn {
+      padding: 10px 16px;
+      background: white;
+      border: 2px solid #e0e0e0;
+      border-radius: 6px;
+      color: #333;
+      cursor: pointer;
+      font-size: 13px;
+      transition: all 0.2s;
+    }
+
+    .toggle-btn:hover {
+      border-color: #ff6b35;
+    }
+
+    .toggle-btn.active {
+      background: #ff6b35;
+      border-color: #ff6b35;
+      color: white;
+    }
+
+    /* Sticky Price Panel */
+    .price-panel {
+      padding: 24px;
+      background: white;
+      border-top: 1px solid rgba(0, 0, 0, 0.1);
+      box-shadow: 0 -2px 10px rgba(0, 0, 0, 0.05);
+      position: sticky;
+      bottom: 0;
+      z-index: 10;
+    }
+
+    .price-display {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 16px;
+    }
+
+    .price-label {
+      font-size: 14px;
+      color: #666;
+    }
+
+    .price-value {
+      font-size: 24px;
+      font-weight: 600;
+      color: #333;
+    }
+
+    .add-to-cart-btn {
+      width: 100%;
+      padding: 16px;
+      background: #2c3e50;
+      color: white;
+      border: none;
+      border-radius: 6px;
+      font-size: 16px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+
+    .add-to-cart-btn:hover {
+      background: #34495e;
+      transform: translateY(-1px);
+    }
+
+    .add-to-cart-btn:active {
+      transform: translateY(0);
+    }
+  </style>
+</head>
+<body>
+  <div class="main-container">
+    <!-- Left Panel - Preview -->
+    <div class="preview-panel" id="preview-panel">
+      <div class="preview-header">
+        <div class="preview-title">3D Preview</div>
+        <div class="preview-controls">
+          <button class="preview-btn" id="fullscreen-btn" title="Fullscreen">
+            <svg viewBox="0 0 24 24">
+              <path d="M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z"/>
+            </svg>
+          </button>
+          <button class="preview-btn" id="screenshot-btn" title="Screenshot">
+            <svg viewBox="0 0 24 24">
+              <path d="M9 2L7.17 4H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2h-3.17L15 2H9zm3 15c-2.76 0-5-2.24-5-5s2.24-5 5-5 5 2.24 5 5-2.24 5-5 5z"/>
+            </svg>
+          </button>
+        </div>
+      </div>
+      <div id="canvas-container">
+        <canvas id="canvas"></canvas>
+      </div>
+    </div>
+
+    <!-- Right Panel - Configurator -->
+    <div class="configurator-panel">
+      <div class="configurator-header">
+        <div class="breadcrumb">
+          <a href="#">Home</a> > Design Your Card
+        </div>
+        <h1 class="configurator-title">Design Your Card</h1>
+        <div class="step-navigation">
+          <button class="step-btn active" data-step="size">Card Size</button>
+          <button class="step-btn" data-step="material">Material</button>
+          <button class="step-btn" data-step="color">Color</button>
+          <button class="step-btn" data-step="layers">Print Layers</button>
+          <button class="step-btn" data-step="finish">Finish</button>
+        </div>
+      </div>
+
+      <div class="configurator-content" id="configurator-content">
+        <!-- Card Size Section -->
+        <div class="config-section" data-step="size">
+          <h2 class="config-section-title">Card Size</h2>
+          <div class="control-group">
+            <label>Width (mm)</label>
+            <input type="range" id="width-slider" min="50" max="150" value="85" step="1">
+            <div class="value" id="width-value">85 mm</div>
+          </div>
+          <div class="control-group">
+            <label>Height (mm)</label>
+            <input type="range" id="height-slider" min="30" max="100" value="55" step="1">
+            <div class="value" id="height-value">55 mm</div>
+          </div>
+          <div class="control-group">
+            <label>Thickness (mm)</label>
+            <input type="range" id="thickness-slider" min="0.1" max="2" value="0.3" step="0.1">
+            <div class="value" id="thickness-value">0.3 mm</div>
+          </div>
+          <div class="control-group">
+            <label>Corner Radius (mm)</label>
+            <input type="range" id="corner-radius-slider" min="0" max="10" value="3" step="0.5">
+            <div class="value" id="corner-radius-value">3 mm</div>
+          </div>
+        </div>
+
+        <!-- Material Section -->
+        <div class="config-section" data-step="material" style="display: none;">
+          <h2 class="config-section-title">Material</h2>
+          <div class="option-grid">
+            <div class="option-item selected">
+              <div class="option-item-name">Standard</div>
+              <div class="option-item-price">£0.00</div>
+            </div>
+            <div class="option-item">
+              <div class="option-item-name">Premium</div>
+              <div class="option-item-price">+£5.00</div>
+            </div>
+            <div class="option-item">
+              <div class="option-item-name">Luxury</div>
+              <div class="option-item-price">+£15.00</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Color Section -->
+        <div class="config-section" data-step="color" style="display: none;">
+          <h2 class="config-section-title">Base Color</h2>
+          <div class="color-swatches">
+            <div class="color-swatch selected" style="background: #8B4513;" title="Tan Brown"></div>
+            <div class="color-swatch" style="background: #2C2C2C;" title="Dark Grey"></div>
+            <div class="color-swatch" style="background: #808080;" title="Grey"></div>
+            <div class="color-swatch" style="background: #3D2817;" title="Dark Brown"></div>
+            <div class="color-swatch" style="background: #FF6B35;" title="Orange"></div>
+            <div class="color-swatch" style="background: #1E3A5F;" title="Dark Blue"></div>
+            <div class="color-swatch" style="background: #556B2F;" title="Olive Green"></div>
+          </div>
+        </div>
+
+        <!-- Print Layers Section -->
+        <div class="config-section" data-step="layers" style="display: none;">
+          <h2 class="config-section-title">Print Layers</h2>
+          <div class="toggle-group">
+            <button class="toggle-btn" id="foil-toggle">Foil</button>
+            <button class="toggle-btn" id="uv-toggle">UV Gloss</button>
+            <button class="toggle-btn" id="emboss-toggle">Emboss</button>
+          </div>
+        </div>
+
+        <!-- Finish Section -->
+        <div class="config-section" data-step="finish" style="display: none;">
+          <h2 class="config-section-title">Finish</h2>
+          <div class="option-grid">
+            <div class="option-item selected">
+              <div class="option-item-name">Matte</div>
+            </div>
+            <div class="option-item">
+              <div class="option-item-name">Glossy</div>
+            </div>
+            <div class="option-item">
+              <div class="option-item-name">Textured</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Sticky Price Panel -->
+      <div class="price-panel">
+        <div class="price-display">
+          <span class="price-label">Total Price</span>
+          <span class="price-value" id="total-price">£0.00</span>
+        </div>
+        <button class="add-to-cart-btn" id="add-to-cart-btn">ADD TO CART</button>
+      </div>
+    </div>
+  </div>
+
+  <script type="module" src="/src/main.ts"></script>
+</body>
+</html>
