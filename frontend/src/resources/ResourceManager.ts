@@ -4,30 +4,49 @@ import { TextureLoader } from 'three';
 
 /**
  * Resource Manager
- * Handles loading of HDR environments, textures, and masks
- * Manages GPU memory and cleanup
+ * Centralized GPU asset loading
+ * All methods are static for global access
  */
 export class ResourceManager {
-  private hdrLoader: RGBELoader;
-  private textureLoader: TextureLoader;
-  private loadedTextures: Map<string, THREE.Texture> = new Map();
-  private loadedHDR: THREE.DataTexture | null = null;
+  private static hdrLoader: RGBELoader | null = null;
+  private static textureLoader: TextureLoader | null = null;
+  private static loadedTextures: Map<string, THREE.Texture> = new Map();
+  private static isInitialized: boolean = false;
 
-  constructor() {
+  /**
+   * Initialize the resource manager
+   * Must be called before loading any assets
+   */
+  static async init(): Promise<void> {
+    if (this.isInitialized) {
+      return;
+    }
+
+    // Initialize loaders
     this.hdrLoader = new RGBELoader();
     this.textureLoader = new TextureLoader();
+
+    this.isInitialized = true;
   }
 
   /**
-   * Load HDR environment map
+   * Load HDR environment map using RGBELoader
+   * Returns Promise<THREE.Texture>
    */
-  async loadHDR(path: string): Promise<THREE.DataTexture> {
+  static async loadHDR(path: string): Promise<THREE.Texture> {
+    if (!this.isInitialized) {
+      await this.init();
+    }
+
+    if (!this.hdrLoader) {
+      throw new Error('ResourceManager not initialized');
+    }
+
     return new Promise((resolve, reject) => {
-      this.hdrLoader.load(
+      this.hdrLoader!.load(
         path,
         (texture) => {
           texture.mapping = THREE.EquirectangularReflectionMapping;
-          this.loadedHDR = texture;
           resolve(texture);
         },
         undefined,
@@ -40,25 +59,35 @@ export class ResourceManager {
   }
 
   /**
-   * Load a texture (artwork, mask, etc.)
+   * Load texture using TextureLoader
+   * Returns Promise<THREE.Texture>
    */
-  async loadTexture(path: string, name: string): Promise<THREE.Texture> {
-    if (this.loadedTextures.has(name)) {
-      return this.loadedTextures.get(name)!;
+  static async loadTexture(path: string): Promise<THREE.Texture> {
+    if (!this.isInitialized) {
+      await this.init();
+    }
+
+    // Check cache
+    if (this.loadedTextures.has(path)) {
+      return this.loadedTextures.get(path)!;
+    }
+
+    if (!this.textureLoader) {
+      throw new Error('ResourceManager not initialized');
     }
 
     return new Promise((resolve, reject) => {
-      this.textureLoader.load(
+      this.textureLoader!.load(
         path,
         (texture) => {
           texture.flipY = false; // For masks and artwork
           texture.colorSpace = THREE.SRGBColorSpace;
-          this.loadedTextures.set(name, texture);
+          this.loadedTextures.set(path, texture);
           resolve(texture);
         },
         undefined,
         (error) => {
-          console.error(`Failed to load texture ${name}:`, error);
+          console.error(`Failed to load texture ${path}:`, error);
           reject(error);
         }
       );
@@ -66,58 +95,47 @@ export class ResourceManager {
   }
 
   /**
-   * Load a mask texture (foil, UV, emboss)
+   * Load mask texture using TextureLoader
+   * Returns Promise<THREE.Texture>
    */
-  async loadMask(path: string, name: string): Promise<THREE.Texture> {
-    return this.loadTexture(path, name);
+  static async loadMask(path: string): Promise<THREE.Texture> {
+    return this.loadTexture(path);
   }
 
   /**
    * Create a placeholder texture (for testing when files don't exist)
    */
-  createPlaceholderTexture(width: number = 512, height: number = 512, color: THREE.Color = new THREE.Color(0.5, 0.5, 0.5)): THREE.Texture {
+  static createPlaceholderTexture(
+    width: number = 512,
+    height: number = 512,
+    color: THREE.Color = new THREE.Color(0.5, 0.5, 0.5)
+  ): THREE.Texture {
     const canvas = document.createElement('canvas');
     canvas.width = width;
     canvas.height = height;
     const ctx = canvas.getContext('2d')!;
-    
+
     ctx.fillStyle = `rgb(${Math.floor(color.r * 255)}, ${Math.floor(color.g * 255)}, ${Math.floor(color.b * 255)})`;
     ctx.fillRect(0, 0, width, height);
-    
+
     const texture = new THREE.CanvasTexture(canvas);
     texture.colorSpace = THREE.SRGBColorSpace;
     return texture;
   }
 
   /**
-   * Get loaded HDR texture
-   */
-  getHDR(): THREE.DataTexture | null {
-    return this.loadedHDR;
-  }
-
-  /**
-   * Get loaded texture by name
-   */
-  getTexture(name: string): THREE.Texture | undefined {
-    return this.loadedTextures.get(name);
-  }
-
-  /**
    * Dispose of all resources and free GPU memory
    */
-  dispose(): void {
-    // Dispose HDR
-    if (this.loadedHDR) {
-      this.loadedHDR.dispose();
-      this.loadedHDR = null;
-    }
-
+  static dispose(): void {
     // Dispose all textures
     for (const texture of this.loadedTextures.values()) {
       texture.dispose();
     }
     this.loadedTextures.clear();
+
+    // Reset loaders
+    this.hdrLoader = null;
+    this.textureLoader = null;
+    this.isInitialized = false;
   }
 }
-

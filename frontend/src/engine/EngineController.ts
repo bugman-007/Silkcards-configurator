@@ -4,6 +4,7 @@ import { ResourceManager } from '../resources/ResourceManager.js';
 
 /**
  * Engine Controller
+ * Core rendering system - decoupled from business logic
  * Manages renderer, scene, camera, lighting, and render loop
  */
 export class EngineController {
@@ -20,66 +21,83 @@ export class EngineController {
   private rimLight: THREE.DirectionalLight | null = null;
   private ambientLight: THREE.AmbientLight | null = null;
 
-  constructor(canvas: HTMLCanvasElement) {
-    this.canvas = canvas;
+  // Resize handler (stored for cleanup)
+  private resizeHandler: () => void;
+
+  /**
+   * Constructor with canvas selector
+   */
+  constructor(canvasSelector: string) {
+    // Find canvas element
+    const canvasElement = document.querySelector(canvasSelector) as HTMLCanvasElement;
+    if (!canvasElement) {
+      throw new Error(`Canvas element not found: ${canvasSelector}`);
+    }
+    this.canvas = canvasElement;
+
+    // Create renderer with proper settings
     this.renderer = new THREE.WebGLRenderer({
-      canvas: canvas,
+      canvas: this.canvas,
       antialias: true,
       powerPreference: 'high-performance'
     });
 
-    this.scene = new THREE.Scene();
-    this.camera = new THREE.PerspectiveCamera(45, 1, 0.1, 1000);
-  }
-
-  /**
-   * Initialize the engine
-   */
-  async init(hdrTexture?: THREE.DataTexture): Promise<void> {
-    if (this.isInitialized) {
-      return;
-    }
-
     // Configure renderer
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-    this.renderer.setSize(this.canvas.clientWidth, this.canvas.clientHeight);
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
     this.renderer.toneMappingExposure = 1.0;
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
-    this.renderer.shadowMap.enabled = false; // No shadows in Phase 1
 
-    // Set up scene environment
-    if (hdrTexture) {
-      this.scene.environment = hdrTexture;
-      this.scene.background = hdrTexture;
-    } else {
-      // Fallback background
-      this.scene.background = new THREE.Color(0x1a1a1a);
-    }
+    // Create scene
+    this.scene = new THREE.Scene();
+
+    // Create camera
+    const aspect = this.canvas.clientWidth / this.canvas.clientHeight || 1;
+    this.camera = new THREE.PerspectiveCamera(45, aspect, 0.1, 1000);
+    this.camera.position.set(0, 0, 150);
+    this.camera.lookAt(0, 0, 0);
+
+    // Set up resize handler
+    this.resizeHandler = () => this.handleResize();
+    window.addEventListener('resize', this.resizeHandler);
+
+    // Set initial size
+    this.handleResize();
+
+    // Set up OrbitControls (dev only)
+    this.setupControls();
 
     // Set up lighting
     this.setupLighting();
 
-    // Set up camera
-    this.camera.position.set(0, 0, 150);
-    this.camera.lookAt(0, 0, 0);
+    // Initialize resource manager and load HDRI environment (async, non-blocking)
+    this.initializeResources();
 
-    // Set up controls (dev mode)
+    this.isInitialized = true;
+  }
+
+  /**
+   * Initialize resources asynchronously (non-blocking)
+   */
+  private async initializeResources(): Promise<void> {
+    await ResourceManager.init();
+    await this.loadHDRI();
+  }
+
+  /**
+   * Set up OrbitControls (dev only)
+   */
+  private setupControls(): void {
     this.controls = new OrbitControls(this.camera, this.canvas);
     this.controls.enableDamping = true;
     this.controls.dampingFactor = 0.05;
     this.controls.minDistance = 50;
     this.controls.maxDistance = 500;
     this.controls.target.set(0, 0, 0);
-
-    // Handle resize
-    window.addEventListener('resize', () => this.resize());
-
-    this.isInitialized = true;
   }
 
   /**
-   * Set up lighting (key light + rim light + ambient)
+   * Set up lighting (key light + rim light)
    */
   private setupLighting(): void {
     // Ambient light for base illumination
@@ -98,32 +116,25 @@ export class EngineController {
   }
 
   /**
-   * Update HDR environment
+   * Load HDRI environment via ResourceManager
    */
-  updateEnvironment(hdrTexture: THREE.DataTexture): void {
-    this.scene.environment = hdrTexture;
-    this.scene.background = hdrTexture;
+  private async loadHDRI(): Promise<void> {
+    try {
+      const hdrTexture = await ResourceManager.loadHDR('/hdr/environment.hdr');
+      this.scene.environment = hdrTexture;
+      this.scene.background = hdrTexture;
+    } catch (error) {
+      // Fallback to solid color background if HDR not found
+      console.warn('HDR environment not found, using default background');
+      this.scene.background = new THREE.Color(0x1a1a1a);
+    }
   }
 
   /**
-   * Get the Three.js scene
+   * Add object to scene
    */
-  getScene(): THREE.Scene {
-    return this.scene;
-  }
-
-  /**
-   * Get the Three.js camera
-   */
-  getCamera(): THREE.PerspectiveCamera {
-    return this.camera;
-  }
-
-  /**
-   * Get the Three.js renderer
-   */
-  getRenderer(): THREE.WebGLRenderer {
-    return this.renderer;
+  add(object: THREE.Object3D): void {
+    this.scene.add(object);
   }
 
   /**
@@ -131,7 +142,7 @@ export class EngineController {
    */
   start(): void {
     if (this.animationId !== null) {
-      return;
+      return; // Already running
     }
 
     const animate = () => {
@@ -155,7 +166,7 @@ export class EngineController {
   /**
    * Update (called each frame)
    */
-  update(): void {
+  private update(): void {
     if (!this.isInitialized) {
       return;
     }
@@ -170,20 +181,52 @@ export class EngineController {
   }
 
   /**
-   * Handle window resize
+   * Public resize method (can be called externally, e.g., for fullscreen)
    */
   resize(): void {
-    if (!this.isInitialized) {
+    this.handleResize();
+  }
+
+  /**
+   * Handle window resize
+   */
+  private handleResize(): void {
+    if (!this.canvas) {
       return;
     }
 
     const width = this.canvas.clientWidth;
     const height = this.canvas.clientHeight;
 
-    this.camera.aspect = width / height;
+    // Update camera aspect ratio
+    this.camera.aspect = width / height || 1;
     this.camera.updateProjectionMatrix();
-    this.renderer.setSize(width, height);
+
+    // Update renderer size
+    this.renderer.setSize(width, height, false);
   }
+
+  /**
+   * Get the Three.js scene (for advanced use cases)
+   */
+  getScene(): THREE.Scene {
+    return this.scene;
+  }
+
+  /**
+   * Get the Three.js camera (for advanced use cases)
+   */
+  getCamera(): THREE.PerspectiveCamera {
+    return this.camera;
+  }
+
+  /**
+   * Get the Three.js renderer (for advanced use cases)
+   */
+  getRenderer(): THREE.WebGLRenderer {
+    return this.renderer;
+  }
+
 
   /**
    * Dispose of all resources
@@ -191,29 +234,36 @@ export class EngineController {
   dispose(): void {
     this.stop();
 
+    // Remove controls
     if (this.controls) {
       this.controls.dispose();
+      this.controls = null;
     }
 
     // Remove lights
     if (this.keyLight) {
       this.scene.remove(this.keyLight);
       this.keyLight.dispose();
+      this.keyLight = null;
     }
     if (this.rimLight) {
       this.scene.remove(this.rimLight);
       this.rimLight.dispose();
+      this.rimLight = null;
     }
     if (this.ambientLight) {
       this.scene.remove(this.ambientLight);
       this.ambientLight.dispose();
+      this.ambientLight = null;
     }
+
+    // Dispose resource manager
+    ResourceManager.dispose();
 
     // Dispose renderer
     this.renderer.dispose();
 
     // Remove event listeners
-    window.removeEventListener('resize', () => this.resize());
+    window.removeEventListener('resize', this.resizeHandler);
   }
 }
-

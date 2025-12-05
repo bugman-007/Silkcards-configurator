@@ -3,17 +3,35 @@
 
 precision highp float;
 
-// Base material varyings
+// Varyings from vertex shader
 varying vec3 vWorldPosition;
 varying vec3 vNormal;
 varying vec2 vUv;
 
-// Base artwork texture
-uniform sampler2D artworkTexture;
+// Main uniforms
+uniform sampler2D uArtworkMap;
+uniform sampler2D uFoilMask;
+uniform sampler2D uUvMask;
+uniform sampler2D uEmbossMap;
+uniform vec3 uBaseColor;
+uniform float uMetallic;
+uniform float uGloss;
+uniform float uEmbossStrength;
 
-// Lighting
+// Lighting uniforms (will be updated per frame)
 uniform vec3 lightDirection;
 uniform vec3 cameraPosition;
+
+// Shader module uniforms (aliased to main uniforms)
+uniform sampler2D foilMask;
+uniform sampler2D uvMask;
+uniform sampler2D embossHeightMap;
+uniform float foilIntensity;
+uniform bool foilEnabled;
+uniform float uvGlossiness;
+uniform bool uvEnabled;
+uniform float embossIntensity;
+uniform bool embossEnabled;
 
 // Include all layer modules
 #include layerBlend.glsl
@@ -22,8 +40,11 @@ uniform vec3 cameraPosition;
 #include embossLayerMock.glsl
 
 void main() {
-  // Base color from artwork
-  vec3 baseColor = texture2D(artworkTexture, vUv).rgb;
+  // Get base color from artwork or uniform
+  vec3 baseColor = texture2D(uArtworkMap, vUv).rgb;
+  if (length(baseColor) < 0.01) {
+    baseColor = uBaseColor;
+  }
   
   // Calculate view and light directions
   vec3 viewDir = normalize(cameraPosition - vWorldPosition);
@@ -32,10 +53,10 @@ void main() {
   // Apply emboss layer (affects normal)
   vec3 finalNormal = applyEmbossLayer(vNormal, vUv);
   
-  // Apply foil layer
+  // Apply foil layer (placeholder blending)
   vec3 color = applyFoilLayer(baseColor, vUv, finalNormal, viewDir, lightDir);
   
-  // Apply UV layer
+  // Apply UV layer (placeholder blending)
   color = applyUVLayer(color, vUv, finalNormal, viewDir, lightDir);
   
   // Basic lighting (simple diffuse)
@@ -45,4 +66,3 @@ void main() {
   // Output
   gl_FragColor = vec4(color, 1.0);
 }
-

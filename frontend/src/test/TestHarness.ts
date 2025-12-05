@@ -1,22 +1,24 @@
+import * as THREE from 'three';
+import { EngineController } from '../engine/EngineController.js';
 import { CardGeometry } from '../engine/CardGeometry.js';
 import { MaterialPipeline } from '../engine/MaterialPipeline.js';
-import { EngineController } from '../engine/EngineController.js';
+import { ResourceManager } from '../resources/ResourceManager.js';
 
 /**
- * Configurator UI Controller
- * Manages the configurator panel UI and interactions
+ * Test Harness
+ * Development controls and initialization for the 3D card engine
  */
 export class TestHarness {
-  private cardGeometry: CardGeometry;
-  private materialPipeline: MaterialPipeline;
   private engineController: EngineController;
+  private cardGeometry: CardGeometry;
+  private material: THREE.ShaderMaterial;
+  private cardMesh: THREE.Mesh;
 
   // Current values
   private width: number = 85;
   private height: number = 55;
-  private thickness: number = 0.3;
-  private cornerRadius: number = 3;
-  private basePrice: number = 0;
+  private thickness: number = 1;
+  private cornerRadius: number = 5;
 
   // UI Elements
   private previewPanel: HTMLElement | null = null;
@@ -43,21 +45,212 @@ export class TestHarness {
   private colorSwatches: NodeListOf<HTMLElement> | null = null;
   private finishOptions: NodeListOf<HTMLElement> | null = null;
 
-  constructor(
-    cardGeometry: CardGeometry,
-    materialPipeline: MaterialPipeline,
-    engineController: EngineController
-  ) {
-    this.cardGeometry = cardGeometry;
-    this.materialPipeline = materialPipeline;
-    this.engineController = engineController;
+  private basePrice: number = 0;
 
+  /**
+   * Initialize the test harness
+   */
+  static async init(): Promise<TestHarness> {
+    const harness = new TestHarness();
+    await harness.initialize();
+    return harness;
+  }
+
+  private constructor() {
+    // Private constructor - use init() instead
+  }
+
+  /**
+   * Initialize engine, resources, geometry, and material
+   */
+  private async initialize(): Promise<void> {
+    console.log('Initializing Test Harness...');
+
+    // Step 1: Initialize EngineController
+    this.engineController = new EngineController('#canvas');
+
+    // Step 2: Initialize ResourceManager
+    await ResourceManager.init();
+
+    // Step 3: Load textures (with fallbacks)
+    let artworkTexture: THREE.Texture;
+    let foilMask: THREE.Texture;
+    let uvMask: THREE.Texture;
+    let embossHeightMap: THREE.Texture;
+
+    try {
+      artworkTexture = await ResourceManager.loadTexture('/textures/artwork.jpg');
+      console.log('Artwork texture loaded');
+    } catch (error) {
+      console.warn('Artwork texture not found, using placeholder');
+      artworkTexture = ResourceManager.createPlaceholderTexture(512, 512, new THREE.Color(0.8, 0.8, 0.9));
+    }
+
+    try {
+      foilMask = await ResourceManager.loadMask('/masks/foil.png');
+      console.log('Foil mask loaded');
+    } catch (error) {
+      console.warn('Foil mask not found, using placeholder');
+      foilMask = ResourceManager.createPlaceholderTexture(512, 512, new THREE.Color(0.0, 0.0, 0.0));
+    }
+
+    try {
+      uvMask = await ResourceManager.loadMask('/masks/uv.png');
+      console.log('UV mask loaded');
+    } catch (error) {
+      console.warn('UV mask not found, using placeholder');
+      uvMask = ResourceManager.createPlaceholderTexture(512, 512, new THREE.Color(0.0, 0.0, 0.0));
+    }
+
+    try {
+      embossHeightMap = await ResourceManager.loadMask('/masks/emboss.png');
+      console.log('Emboss height map loaded');
+    } catch (error) {
+      console.warn('Emboss height map not found, using placeholder');
+      embossHeightMap = ResourceManager.createPlaceholderTexture(512, 512, new THREE.Color(0.5, 0.5, 0.5));
+    }
+
+    // Step 4: Create card geometry
+    this.cardGeometry = new CardGeometry({
+      width: this.width,
+      height: this.height,
+      thickness: this.thickness,
+      cornerRadius: this.cornerRadius
+    });
+
+    // Step 5: Create material via MaterialPipeline
+    this.material = MaterialPipeline.createCardMaterial({
+      artwork: artworkTexture,
+      foilMask: foilMask,
+      uvMask: uvMask,
+      embossMap: embossHeightMap
+    });
+
+    // Step 6: Combine into mesh and add to scene
+    this.cardMesh = new THREE.Mesh(this.cardGeometry.geometry, this.material);
+    this.engineController.add(this.cardMesh);
+
+    // Step 7: Start render loop
+    this.engineController.start();
+
+    // Set up update loop for material uniforms
+    this.setupUpdateLoop();
+
+    // Set up UI and controls
     this.setupUI();
     this.setupEventListeners();
     this.updatePrice();
-    
-    // Show initial step
     this.showStep('size');
+
+    // Expose global functions for development controls
+    this.exposeGlobalControls();
+
+    console.log('Test Harness initialized successfully');
+  }
+
+  /**
+   * Set up update loop for material uniforms
+   */
+  private setupUpdateLoop(): void {
+    const updateLoop = () => {
+      const camera = this.engineController.getCamera();
+      const worldPos = new THREE.Vector3();
+      camera.getWorldPosition(worldPos);
+      this.material.uniforms.cameraPosition.value.copy(worldPos);
+
+      // Update light direction
+      const lightDir = new THREE.Vector3(0.5, 0.5, 0.5).normalize();
+      this.material.uniforms.lightDirection.value.copy(lightDir);
+
+      requestAnimationFrame(updateLoop);
+    };
+    updateLoop();
+  }
+
+  /**
+   * Expose global functions for development controls
+   */
+  private exposeGlobalControls(): void {
+    // Global functions for changing dimensions
+    (window as any).setCardWidth = (width: number) => {
+      this.width = width;
+      this.updateDimensions();
+      if (this.widthSlider) {
+        this.widthSlider.value = width.toString();
+        this.updateValueDisplay('width-value', `${width} mm`);
+      }
+    };
+
+    (window as any).setCardHeight = (height: number) => {
+      this.height = height;
+      this.updateDimensions();
+      if (this.heightSlider) {
+        this.heightSlider.value = height.toString();
+        this.updateValueDisplay('height-value', `${height} mm`);
+      }
+    };
+
+    (window as any).setCardThickness = (thickness: number) => {
+      this.thickness = thickness;
+      this.updateDimensions();
+      if (this.thicknessSlider) {
+        this.thicknessSlider.value = thickness.toString();
+        this.updateValueDisplay('thickness-value', `${thickness} mm`);
+      }
+    };
+
+    (window as any).setCardCornerRadius = (radius: number) => {
+      this.cornerRadius = radius;
+      this.updateDimensions();
+      if (this.cornerRadiusSlider) {
+        this.cornerRadiusSlider.value = radius.toString();
+        this.updateValueDisplay('corner-radius-value', `${radius} mm`);
+      }
+    };
+
+    // Global functions for toggling layers
+    (window as any).toggleFoil = (enabled?: boolean) => {
+      const newState = enabled !== undefined ? enabled : !this.material.uniforms.foilEnabled.value;
+      this.material.uniforms.foilEnabled.value = newState;
+      if (this.foilToggle) {
+        if (newState) {
+          this.foilToggle.classList.add('active');
+        } else {
+          this.foilToggle.classList.remove('active');
+        }
+      }
+      this.updatePrice();
+    };
+
+    (window as any).toggleUV = (enabled?: boolean) => {
+      const newState = enabled !== undefined ? enabled : !this.material.uniforms.uvEnabled.value;
+      this.material.uniforms.uvEnabled.value = newState;
+      if (this.uvToggle) {
+        if (newState) {
+          this.uvToggle.classList.add('active');
+        } else {
+          this.uvToggle.classList.remove('active');
+        }
+      }
+      this.updatePrice();
+    };
+
+    (window as any).toggleEmboss = (enabled?: boolean) => {
+      const newState = enabled !== undefined ? enabled : !this.material.uniforms.embossEnabled.value;
+      this.material.uniforms.embossEnabled.value = newState;
+      if (this.embossToggle) {
+        if (newState) {
+          this.embossToggle.classList.add('active');
+        } else {
+          this.embossToggle.classList.remove('active');
+        }
+      }
+      this.updatePrice();
+    };
+
+    console.log('Global controls exposed:');
+    console.log('  setCardWidth(width), setCardHeight(height), setCardThickness(thickness), setCardCornerRadius(radius)');
+    console.log('  toggleFoil(enabled?), toggleUV(enabled?), toggleEmboss(enabled?)');
   }
 
   /**
@@ -87,6 +280,12 @@ export class TestHarness {
     this.materialOptions = document.querySelectorAll('[data-step="material"] .option-item');
     this.colorSwatches = document.querySelectorAll('.color-swatch');
     this.finishOptions = document.querySelectorAll('[data-step="finish"] .option-item');
+
+    // Set initial slider values
+    if (this.widthSlider) this.widthSlider.value = this.width.toString();
+    if (this.heightSlider) this.heightSlider.value = this.height.toString();
+    if (this.thicknessSlider) this.thicknessSlider.value = this.thickness.toString();
+    if (this.cornerRadiusSlider) this.cornerRadiusSlider.value = this.cornerRadius.toString();
   }
 
   /**
@@ -154,28 +353,19 @@ export class TestHarness {
     // Layer toggles
     if (this.foilToggle) {
       this.foilToggle.addEventListener('click', () => {
-        const isActive = this.foilToggle!.classList.contains('active');
-        this.materialPipeline.toggleFoil(!isActive);
-        this.foilToggle!.classList.toggle('active');
-        this.updatePrice();
+        (window as any).toggleFoil();
       });
     }
 
     if (this.uvToggle) {
       this.uvToggle.addEventListener('click', () => {
-        const isActive = this.uvToggle!.classList.contains('active');
-        this.materialPipeline.toggleUV(!isActive);
-        this.uvToggle!.classList.toggle('active');
-        this.updatePrice();
+        (window as any).toggleUV();
       });
     }
 
     if (this.embossToggle) {
       this.embossToggle.addEventListener('click', () => {
-        const isActive = this.embossToggle!.classList.contains('active');
-        this.materialPipeline.toggleEmboss(!isActive);
-        this.embossToggle!.classList.toggle('active');
-        this.updatePrice();
+        (window as any).toggleEmboss();
       });
     }
 
@@ -196,7 +386,6 @@ export class TestHarness {
         swatch.addEventListener('click', () => {
           this.colorSwatches!.forEach(s => s.classList.remove('selected'));
           swatch.classList.add('selected');
-          // TODO: Apply color to material
         });
       });
     }
@@ -216,13 +405,11 @@ export class TestHarness {
     if (this.addToCartBtn) {
       this.addToCartBtn.addEventListener('click', () => {
         console.log('Add to cart clicked');
-        // TODO: Implement add to cart functionality
       });
     }
 
     // Keyboard shortcuts
     document.addEventListener('keydown', (event) => {
-      // Escape to exit fullscreen
       if (event.key === 'Escape' && this.previewPanel?.classList.contains('fullscreen')) {
         this.toggleFullscreen();
       }
@@ -250,7 +437,6 @@ export class TestHarness {
       } else {
         this.previewPanel.classList.remove('fullscreen');
       }
-      // Resize canvas
       setTimeout(() => {
         this.engineController.resize();
       }, 100);
@@ -269,7 +455,6 @@ export class TestHarness {
                         (document as any).msFullscreenElement !== null;
 
     if (isFullscreen || this.previewPanel.classList.contains('fullscreen')) {
-      // Exit fullscreen
       this.previewPanel.classList.remove('fullscreen');
       if (document.exitFullscreen) {
         document.exitFullscreen();
@@ -281,7 +466,6 @@ export class TestHarness {
         (document as any).msExitFullscreen();
       }
     } else {
-      // Enter fullscreen
       this.previewPanel.classList.add('fullscreen');
       const element = this.previewPanel as any;
       if (element.requestFullscreen) {
@@ -295,7 +479,6 @@ export class TestHarness {
       }
     }
 
-    // Resize canvas after a short delay
     setTimeout(() => {
       this.engineController.resize();
     }, 100);
@@ -319,7 +502,6 @@ export class TestHarness {
    * Show specific configuration step
    */
   private showStep(step: string): void {
-    // Update step buttons
     if (this.stepButtons) {
       this.stepButtons.forEach(btn => {
         if (btn.getAttribute('data-step') === step) {
@@ -330,7 +512,6 @@ export class TestHarness {
       });
     }
 
-    // Show/hide sections
     if (this.configSections) {
       this.configSections.forEach(section => {
         if (section.getAttribute('data-step') === step) {
@@ -372,7 +553,6 @@ export class TestHarness {
 
     let price = this.basePrice;
 
-    // Add material price
     const selectedMaterial = document.querySelector('[data-step="material"] .option-item.selected');
     if (selectedMaterial) {
       const priceText = selectedMaterial.querySelector('.option-item-price')?.textContent || '£0.00';
@@ -380,21 +560,14 @@ export class TestHarness {
       price += materialPrice;
     }
 
-    // Add layer prices (placeholder)
     if (this.foilToggle?.classList.contains('active')) {
-      price += 10; // Foil layer
+      price += 10;
     }
     if (this.uvToggle?.classList.contains('active')) {
-      price += 5; // UV layer
+      price += 5;
     }
     if (this.embossToggle?.classList.contains('active')) {
-      price += 15; // Emboss layer
-    }
-
-    // Add finish price
-    const selectedFinish = document.querySelector('[data-step="finish"] .option-item.selected');
-    if (selectedFinish) {
-      // Finish pricing logic if needed
+      price += 15;
     }
 
     this.priceDisplay.textContent = `£${price.toFixed(2)}`;
