@@ -158,21 +158,11 @@ export class TestHarness {
 
   /**
    * Set up update loop for material uniforms
+   * Note: No uniforms need per-frame updates with the new shader structure
    */
   private setupUpdateLoop(): void {
-    const updateLoop = () => {
-      const camera = this.engineController.getCamera();
-      const worldPos = new THREE.Vector3();
-      camera.getWorldPosition(worldPos);
-      this.material.uniforms.cameraPosition.value.copy(worldPos);
-
-      // Update light direction
-      const lightDir = new THREE.Vector3(0.5, 0.5, 0.5).normalize();
-      this.material.uniforms.lightDirection.value.copy(lightDir);
-
-      requestAnimationFrame(updateLoop);
-    };
-    updateLoop();
+    // No per-frame uniform updates needed
+    // All uniforms are set once and updated only when user changes settings
   }
 
   /**
@@ -223,10 +213,13 @@ export class TestHarness {
     };
 
     // Global functions for toggling layers
+    // Note: With new shader structure, layers are always active based on mask values
+    // Toggles can be implemented by swapping between mask texture and black texture
     (window as any).toggleFoil = (enabled?: boolean) => {
-      const newState = enabled !== undefined ? enabled : !this.material.uniforms.foilEnabled.value;
-      this.material.uniforms.foilEnabled.value = newState;
+      // Layer effects are controlled by mask textures
+      // For now, just update UI state
       if (this.foilToggle) {
+        const newState = enabled !== undefined ? enabled : !this.foilToggle.classList.contains('active');
         if (newState) {
           this.foilToggle.classList.add('active');
         } else {
@@ -237,9 +230,8 @@ export class TestHarness {
     };
 
     (window as any).toggleUV = (enabled?: boolean) => {
-      const newState = enabled !== undefined ? enabled : !this.material.uniforms.uvEnabled.value;
-      this.material.uniforms.uvEnabled.value = newState;
       if (this.uvToggle) {
+        const newState = enabled !== undefined ? enabled : !this.uvToggle.classList.contains('active');
         if (newState) {
           this.uvToggle.classList.add('active');
         } else {
@@ -250,9 +242,8 @@ export class TestHarness {
     };
 
     (window as any).toggleEmboss = (enabled?: boolean) => {
-      const newState = enabled !== undefined ? enabled : !this.material.uniforms.embossEnabled.value;
-      this.material.uniforms.embossEnabled.value = newState;
       if (this.embossToggle) {
+        const newState = enabled !== undefined ? enabled : !this.embossToggle.classList.contains('active');
         if (newState) {
           this.embossToggle.classList.add('active');
         } else {

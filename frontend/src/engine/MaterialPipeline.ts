@@ -1,6 +1,7 @@
 import * as THREE from 'three';
-import vertexShader from '../shaders/vertex.glsl?raw';
-import fragmentShader from '../shaders/fragment.glsl?raw';
+// Import shaders without ?raw so vite-plugin-glsl can process #include directives
+import vertexShader from '../shaders/vertex.glsl';
+import fragmentShader from '../shaders/fragment.glsl';
 
 /**
  * Material Pipeline
@@ -34,34 +35,15 @@ export class MaterialPipeline {
       vertexShader,
       fragmentShader,
       uniforms: {
-        // Texture uniforms
-        uArtworkMap: { value: artwork },
-        uFoilMask: { value: foilMask },
-        uUvMask: { value: uvMask },
-        uEmbossMap: { value: embossMap },
-
-        // Shader module uniforms (aliased to main uniforms)
+        // Texture uniforms (matching fragment shader uniform names)
+        artworkMap: { value: artwork },
         foilMask: { value: foilMask },
         uvMask: { value: uvMask },
-        embossHeightMap: { value: embossMap },
+        embossMap: { value: embossMap },
 
         // Material properties
-        uBaseColor: { value: new THREE.Color(0.8, 0.8, 0.9) },
-        uMetallic: { value: 0.0 },
         uGloss: { value: 0.5 },
-        uEmbossStrength: { value: 0.5 },
-
-        // Layer toggles (mapped to shader module uniforms)
-        foilEnabled: { value: false },
-        uvEnabled: { value: false },
-        embossEnabled: { value: false },
-        foilIntensity: { value: 1.0 },
-        uvGlossiness: { value: 1.0 },
-        embossIntensity: { value: 0.5 },
-
-        // Lighting (updated per frame)
-        lightDirection: { value: new THREE.Vector3(0.5, 0.5, 0.5).normalize() },
-        cameraPosition: { value: new THREE.Vector3(0, 0, 150) }
+        uEmbossStrength: { value: 0.5 }
       },
       side: THREE.DoubleSide
     });
@@ -90,25 +72,16 @@ export class MaterialPipeline {
     }>
   ): void {
     if (options.artwork !== undefined) {
-      material.uniforms.uArtworkMap.value = options.artwork;
+      material.uniforms.artworkMap.value = options.artwork;
     }
     if (options.foilMask !== undefined) {
-      material.uniforms.uFoilMask.value = options.foilMask;
-      if (material.uniforms.foilMask) {
-        material.uniforms.foilMask.value = options.foilMask;
-      }
+      material.uniforms.foilMask.value = options.foilMask;
     }
     if (options.uvMask !== undefined) {
-      material.uniforms.uUvMask.value = options.uvMask;
-      if (material.uniforms.uvMask) {
-        material.uniforms.uvMask.value = options.uvMask;
-      }
+      material.uniforms.uvMask.value = options.uvMask;
     }
     if (options.embossMap !== undefined) {
-      material.uniforms.uEmbossMap.value = options.embossMap;
-      if (material.uniforms.embossHeightMap) {
-        material.uniforms.embossHeightMap.value = options.embossMap;
-      }
+      material.uniforms.embossMap.value = options.embossMap;
     }
   }
 
