@@ -15,10 +15,11 @@ export class TestHarness {
   private cardMesh: THREE.Mesh;
 
   // Current values
-  private width: number = 85;
-  private height: number = 55;
-  private thickness: number = 1;
+  private width: number = 88.9; // 3.5" in mm (default: Traditional)
+  private height: number = 50.8; // 2" in mm
+  private thickness: number = 5.64; // 16pt in mm (default)
   private cornerRadius: number = 5;
+  private isCustomSize: boolean = false;
 
   // UI Elements
   private previewPanel: HTMLElement | null = null;
@@ -29,11 +30,18 @@ export class TestHarness {
   private priceDisplay: HTMLElement | null = null;
   private addToCartBtn: HTMLElement | null = null;
 
-  // Sliders
+  // Size options
+  private sizeOptionCards: NodeListOf<HTMLElement> | null = null;
+  private customSizeToggle: HTMLElement | null = null;
+  private customSizeControls: HTMLElement | null = null;
+  
+  // Sliders (for custom size)
   private widthSlider: HTMLInputElement | null = null;
   private heightSlider: HTMLInputElement | null = null;
-  private thicknessSlider: HTMLInputElement | null = null;
   private cornerRadiusSlider: HTMLInputElement | null = null;
+
+  // Thickness options
+  private thicknessOptions: NodeListOf<HTMLElement> | null = null;
 
   // Layer toggles
   private foilToggle: HTMLElement | null = null;
@@ -110,7 +118,7 @@ export class TestHarness {
       embossHeightMap = ResourceManager.createPlaceholderTexture(512, 512, new THREE.Color(0.5, 0.5, 0.5));
     }
 
-    // Step 4: Create card geometry
+    // Step 4: Create card geometry (default: 3.5" x 2" Traditional, 16pt)
     this.cardGeometry = new CardGeometry({
       width: this.width,
       height: this.height,
@@ -193,9 +201,15 @@ export class TestHarness {
     (window as any).setCardThickness = (thickness: number) => {
       this.thickness = thickness;
       this.updateDimensions();
-      if (this.thicknessSlider) {
-        this.thicknessSlider.value = thickness.toString();
-        this.updateValueDisplay('thickness-value', `${thickness} mm`);
+      // Update thickness option selection
+      if (this.thicknessOptions) {
+        this.thicknessOptions.forEach(option => {
+          const optionThickness = parseFloat(option.getAttribute('data-thickness') || '0');
+          if (Math.abs(optionThickness - thickness) < 0.1) {
+            this.thicknessOptions!.forEach(opt => opt.classList.remove('selected'));
+            option.classList.add('selected');
+          }
+        });
       }
     };
 
@@ -265,11 +279,18 @@ export class TestHarness {
     this.priceDisplay = document.getElementById('total-price');
     this.addToCartBtn = document.getElementById('add-to-cart-btn');
 
-    // Sliders
+    // Size options
+    this.sizeOptionCards = document.querySelectorAll('.size-option-card');
+    this.customSizeToggle = document.getElementById('custom-size-toggle');
+    this.customSizeControls = document.getElementById('custom-size-controls');
+
+    // Sliders (for custom size)
     this.widthSlider = document.getElementById('width-slider') as HTMLInputElement;
     this.heightSlider = document.getElementById('height-slider') as HTMLInputElement;
-    this.thicknessSlider = document.getElementById('thickness-slider') as HTMLInputElement;
     this.cornerRadiusSlider = document.getElementById('corner-radius-slider') as HTMLInputElement;
+
+    // Thickness options
+    this.thicknessOptions = document.querySelectorAll('.thickness-option');
 
     // Layer toggles
     this.foilToggle = document.getElementById('foil-toggle');
@@ -281,10 +302,9 @@ export class TestHarness {
     this.colorSwatches = document.querySelectorAll('.color-swatch');
     this.finishOptions = document.querySelectorAll('[data-step="finish"] .option-item');
 
-    // Set initial slider values
+    // Set initial slider values (for custom size)
     if (this.widthSlider) this.widthSlider.value = this.width.toString();
     if (this.heightSlider) this.heightSlider.value = this.height.toString();
-    if (this.thicknessSlider) this.thicknessSlider.value = this.thickness.toString();
     if (this.cornerRadiusSlider) this.cornerRadiusSlider.value = this.cornerRadius.toString();
   }
 
@@ -314,39 +334,110 @@ export class TestHarness {
       });
     }
 
-    // Dimension sliders
+    // Size option cards
+    if (this.sizeOptionCards) {
+      this.sizeOptionCards.forEach(card => {
+        card.addEventListener('click', () => {
+          // Deselect all cards
+          this.sizeOptionCards!.forEach(c => c.classList.remove('selected'));
+          // Select clicked card
+          card.classList.add('selected');
+          
+          // Get dimensions from data attributes
+          const width = parseFloat(card.getAttribute('data-width') || '88.9');
+          const height = parseFloat(card.getAttribute('data-height') || '50.8');
+          
+          this.width = width;
+          this.height = height;
+          this.isCustomSize = false;
+          
+          // Hide custom controls
+          if (this.customSizeControls) {
+            this.customSizeControls.style.display = 'none';
+          }
+          
+          this.updateDimensions();
+          this.updatePrice();
+        });
+      });
+    }
+
+    // Custom size toggle
+    if (this.customSizeToggle) {
+      this.customSizeToggle.addEventListener('click', () => {
+        // Deselect all size option cards
+        if (this.sizeOptionCards) {
+          this.sizeOptionCards.forEach(card => card.classList.remove('selected'));
+        }
+        
+        // Toggle custom controls visibility
+        if (this.customSizeControls) {
+          const isVisible = this.customSizeControls.style.display !== 'none';
+          this.customSizeControls.style.display = isVisible ? 'none' : 'block';
+          this.isCustomSize = !isVisible;
+          
+          // If enabling custom size, update sliders to current values
+          if (!isVisible) {
+            if (this.widthSlider) this.widthSlider.value = this.width.toString();
+            if (this.heightSlider) this.heightSlider.value = this.height.toString();
+            if (this.cornerRadiusSlider) this.cornerRadiusSlider.value = this.cornerRadius.toString();
+            this.updateValueDisplay('width-value', `${this.width} mm`);
+            this.updateValueDisplay('height-value', `${this.height} mm`);
+            this.updateValueDisplay('corner-radius-value', `${this.cornerRadius} mm`);
+          }
+        }
+      });
+    }
+
+    // Custom size sliders (only active when custom size is enabled)
     if (this.widthSlider) {
       this.widthSlider.addEventListener('input', () => {
-        this.width = parseFloat(this.widthSlider!.value);
-        this.updateDimensions();
-        this.updateValueDisplay('width-value', `${this.width} mm`);
-        this.updatePrice();
+        if (this.isCustomSize) {
+          this.width = parseFloat(this.widthSlider!.value);
+          this.updateDimensions();
+          this.updateValueDisplay('width-value', `${this.width} mm`);
+          this.updatePrice();
+        }
       });
     }
 
     if (this.heightSlider) {
       this.heightSlider.addEventListener('input', () => {
-        this.height = parseFloat(this.heightSlider!.value);
-        this.updateDimensions();
-        this.updateValueDisplay('height-value', `${this.height} mm`);
-        this.updatePrice();
-      });
-    }
-
-    if (this.thicknessSlider) {
-      this.thicknessSlider.addEventListener('input', () => {
-        this.thickness = parseFloat(this.thicknessSlider!.value);
-        this.updateDimensions();
-        this.updateValueDisplay('thickness-value', `${this.thickness} mm`);
-        this.updatePrice();
+        if (this.isCustomSize) {
+          this.height = parseFloat(this.heightSlider!.value);
+          this.updateDimensions();
+          this.updateValueDisplay('height-value', `${this.height} mm`);
+          this.updatePrice();
+        }
       });
     }
 
     if (this.cornerRadiusSlider) {
       this.cornerRadiusSlider.addEventListener('input', () => {
-        this.cornerRadius = parseFloat(this.cornerRadiusSlider!.value);
-        this.updateDimensions();
-        this.updateValueDisplay('corner-radius-value', `${this.cornerRadius} mm`);
+        if (this.isCustomSize) {
+          this.cornerRadius = parseFloat(this.cornerRadiusSlider!.value);
+          this.updateDimensions();
+          this.updateValueDisplay('corner-radius-value', `${this.cornerRadius} mm`);
+        }
+      });
+    }
+
+    // Thickness options
+    if (this.thicknessOptions) {
+      this.thicknessOptions.forEach(option => {
+        option.addEventListener('click', () => {
+          // Deselect all thickness options
+          this.thicknessOptions!.forEach(opt => opt.classList.remove('selected'));
+          // Select clicked option
+          option.classList.add('selected');
+          
+          // Get thickness from data attribute (in mm)
+          const thickness = parseFloat(option.getAttribute('data-thickness') || '5.64');
+          this.thickness = thickness;
+          
+          this.updateDimensions();
+          this.updatePrice();
+        });
       });
     }
 
@@ -420,6 +511,14 @@ export class TestHarness {
     document.addEventListener('webkitfullscreenchange', () => this.handleFullscreenChange());
     document.addEventListener('mozfullscreenchange', () => this.handleFullscreenChange());
     document.addEventListener('MSFullscreenChange', () => this.handleFullscreenChange());
+
+    // Listen for panel resize (when divider is dragged)
+    window.addEventListener('resize', () => {
+      // Small delay to ensure DOM has updated
+      setTimeout(() => {
+        this.engineController.resize();
+      }, 50);
+    });
   }
 
   /**

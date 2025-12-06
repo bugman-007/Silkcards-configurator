@@ -34,6 +34,8 @@
       background: #f5f5f0;
       display: flex;
       flex-direction: column;
+      min-width: 300px;
+      max-width: calc(100% - 300px);
     }
 
     .preview-header {
@@ -101,9 +103,39 @@
       z-index: 1000;
     }
 
+    /* Resizable Divider */
+    .panel-divider {
+      width: 4px;
+      background: rgba(0, 0, 0, 0.1);
+      cursor: col-resize;
+      position: relative;
+      flex-shrink: 0;
+      transition: background 0.2s;
+    }
+
+    .panel-divider:hover {
+      background: rgba(0, 0, 0, 0.2);
+    }
+
+    .panel-divider::before {
+      content: '';
+      position: absolute;
+      left: -2px;
+      right: -2px;
+      top: 0;
+      bottom: 0;
+      cursor: col-resize;
+    }
+
+    .panel-divider.dragging {
+      background: #ff6b35;
+    }
+
     /* Right Panel - Configurator */
     .configurator-panel {
       width: 450px;
+      min-width: 300px;
+      max-width: calc(100% - 300px);
       background: white;
       display: flex;
       flex-direction: column;
@@ -149,13 +181,27 @@
       display: flex;
       gap: 8px;
       overflow-x: auto;
+      overflow-y: hidden;
       padding-bottom: 8px;
-      scrollbar-width: none;
-      -ms-overflow-style: none;
+      scrollbar-width: thin;
+      scrollbar-color: rgba(0, 0, 0, 0.2) transparent;
     }
 
     .step-navigation::-webkit-scrollbar {
-      display: none;
+      height: 2px;
+    }
+
+    .step-navigation::-webkit-scrollbar-track {
+      background: transparent;
+    }
+
+    .step-navigation::-webkit-scrollbar-thumb {
+      background: rgba(0, 0, 0, 0.2);
+      border-radius: 1px;
+    }
+
+    .step-navigation::-webkit-scrollbar-thumb:hover {
+      background: rgba(0, 0, 0, 0.3);
     }
 
     .step-btn {
@@ -302,6 +348,156 @@
       margin-top: 4px;
     }
 
+    /* Size Option Cards */
+    .size-options {
+      display: flex;
+      gap: 12px;
+      flex-wrap: wrap;
+      margin-bottom: 24px;
+    }
+
+    .size-option-card {
+      flex: 1;
+      min-width: 140px;
+      border: 2px solid #e0e0e0;
+      border-radius: 8px;
+      padding: 16px;
+      cursor: pointer;
+      transition: all 0.2s;
+      background: white;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+    }
+
+    .size-option-card:hover {
+      border-color: #ff6b35;
+    }
+
+    .size-option-card.selected {
+      border-color: #ff6b35;
+      background: rgba(255, 107, 53, 0.05);
+    }
+
+    .size-preview {
+      width: 100%;
+      height: 60px;
+      background: #333;
+      border-radius: 4px;
+      margin-bottom: 12px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .size-option-card.selected .size-preview {
+      background: #000;
+    }
+
+    .size-preview.slim {
+      height: 40px;
+    }
+
+    .size-preview.square {
+      width: 50px;
+      height: 50px;
+      margin: 0 auto 12px;
+    }
+
+    .size-option-text {
+      font-size: 13px;
+      font-weight: 500;
+      color: #333;
+      text-align: center;
+      line-height: 1.4;
+    }
+
+    .size-option-card.selected .size-option-text {
+      color: #ff6b35;
+      font-weight: 600;
+    }
+
+    .custom-size-button {
+      width: 100%;
+      padding: 16px;
+      border: 2px solid #e0e0e0;
+      border-radius: 8px;
+      background: white;
+      cursor: pointer;
+      transition: all 0.2s;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin-top: 12px;
+    }
+
+    .custom-size-button:hover {
+      border-color: #ff6b35;
+    }
+
+    .custom-size-icon {
+      width: 24px;
+      height: 24px;
+      background: #4a90e2;
+      border-radius: 4px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: white;
+      font-size: 14px;
+    }
+
+    .custom-size-text {
+      font-size: 14px;
+      font-weight: 500;
+      color: #333;
+    }
+
+    /* Thickness Options */
+    .thickness-options {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      margin-top: 12px;
+    }
+
+    .thickness-option {
+      flex: 1;
+      min-width: 80px;
+      padding: 12px;
+      border: 2px solid #e0e0e0;
+      border-radius: 6px;
+      background: white;
+      cursor: pointer;
+      transition: all 0.2s;
+      text-align: center;
+    }
+
+    .thickness-option:hover {
+      border-color: #ff6b35;
+    }
+
+    .thickness-option.selected {
+      border-color: #ff6b35;
+      background: rgba(255, 107, 53, 0.05);
+    }
+
+    .thickness-option-value {
+      font-size: 14px;
+      font-weight: 600;
+      color: #333;
+    }
+
+    .thickness-option.selected .thickness-option-value {
+      color: #ff6b35;
+    }
+
+    .custom-size-controls {
+      margin-top: 20px;
+      padding-top: 20px;
+      border-top: 1px solid rgba(0, 0, 0, 0.1);
+    }
+
     .color-swatches {
       display: flex;
       gap: 12px;
@@ -431,8 +627,11 @@
       </div>
     </div>
 
+    <!-- Resizable Divider -->
+    <div class="panel-divider" id="panel-divider"></div>
+
     <!-- Right Panel - Configurator -->
-    <div class="configurator-panel">
+    <div class="configurator-panel" id="configurator-panel">
       <div class="configurator-header">
         <div class="breadcrumb">
           <a href="#">Home</a> > Design Your Card
@@ -451,25 +650,68 @@
         <!-- Card Size Section -->
         <div class="config-section" data-step="size">
           <h2 class="config-section-title">Card Size</h2>
-          <div class="control-group">
-            <label>Width (mm)</label>
-            <input type="range" id="width-slider" min="50" max="150" value="85" step="1">
-            <div class="value" id="width-value">85 mm</div>
+          
+          <!-- Static Size Options -->
+          <div class="size-options">
+            <div class="size-option-card selected" data-size="traditional" data-width="88.9" data-height="50.8">
+              <div class="size-preview"></div>
+              <div class="size-option-text">3.5" x 2"<br>Traditional</div>
+            </div>
+            <div class="size-option-card" data-size="slim" data-width="88.9" data-height="38.1">
+              <div class="size-preview slim"></div>
+              <div class="size-option-text">3.5" x 1.5"<br>Slim Cut</div>
+            </div>
+            <div class="size-option-card" data-size="square" data-width="63.5" data-height="63.5">
+              <div class="size-preview square"></div>
+              <div class="size-option-text">2.5" x 2.5"<br>Square</div>
+            </div>
           </div>
-          <div class="control-group">
-            <label>Height (mm)</label>
-            <input type="range" id="height-slider" min="30" max="100" value="55" step="1">
-            <div class="value" id="height-value">55 mm</div>
+
+          <!-- Custom Size Button -->
+          <div class="custom-size-button" id="custom-size-toggle">
+            <div class="custom-size-icon">📏</div>
+            <div class="custom-size-text">Custom Size</div>
           </div>
-          <div class="control-group">
-            <label>Thickness (mm)</label>
-            <input type="range" id="thickness-slider" min="0.1" max="2" value="1" step="0.1">
-            <div class="value" id="thickness-value">1.0 mm</div>
+
+          <!-- Custom Size Controls (Hidden by default) -->
+          <div class="custom-size-controls" id="custom-size-controls" style="display: none;">
+            <div class="control-group">
+              <label>Width (mm)</label>
+              <input type="range" id="width-slider" min="50" max="150" value="88.9" step="0.1">
+              <div class="value" id="width-value">88.9 mm</div>
+            </div>
+            <div class="control-group">
+              <label>Height (mm)</label>
+              <input type="range" id="height-slider" min="30" max="100" value="50.8" step="0.1">
+              <div class="value" id="height-value">50.8 mm</div>
+            </div>
+            <div class="control-group">
+              <label>Corner Radius (mm)</label>
+              <input type="range" id="corner-radius-slider" min="0" max="10" value="5" step="0.5">
+              <div class="value" id="corner-radius-value">5.0 mm</div>
+            </div>
           </div>
-          <div class="control-group">
-            <label>Corner Radius (mm)</label>
-            <input type="range" id="corner-radius-slider" min="0" max="10" value="5" step="0.5">
-            <div class="value" id="corner-radius-value">5.0 mm</div>
+
+          <!-- Thickness Section -->
+          <div class="control-group" style="margin-top: 32px;">
+            <label>Thickness</label>
+            <div class="thickness-options">
+              <div class="thickness-option selected" data-thickness="5.64" data-thickness-pt="16">
+                <div class="thickness-option-value">16pt</div>
+              </div>
+              <div class="thickness-option" data-thickness="9.88" data-thickness-pt="28">
+                <div class="thickness-option-value">28pt</div>
+              </div>
+              <div class="thickness-option" data-thickness="11.29" data-thickness-pt="32">
+                <div class="thickness-option-value">32pt</div>
+              </div>
+              <div class="thickness-option" data-thickness="15.88" data-thickness-pt="45">
+                <div class="thickness-option-value">45pt</div>
+              </div>
+              <div class="thickness-option" data-thickness="16.93" data-thickness-pt="48">
+                <div class="thickness-option-value">48pt</div>
+              </div>
+            </div>
           </div>
         </div>
 
@@ -543,6 +785,69 @@
       </div>
     </div>
   </div>
+
+  <script>
+    // Panel Resizer Functionality
+    (function() {
+      const divider = document.getElementById('panel-divider');
+      const previewPanel = document.getElementById('preview-panel');
+      const configuratorPanel = document.getElementById('configurator-panel');
+      
+      if (!divider || !previewPanel || !configuratorPanel) return;
+
+      let isDragging = false;
+      let startX = 0;
+      let startPreviewWidth = 0;
+      let startConfiguratorWidth = 0;
+
+      divider.addEventListener('mousedown', (e) => {
+        isDragging = true;
+        divider.classList.add('dragging');
+        startX = e.clientX;
+        startPreviewWidth = previewPanel.offsetWidth;
+        startConfiguratorWidth = configuratorPanel.offsetWidth;
+        document.body.style.cursor = 'col-resize';
+        document.body.style.userSelect = 'none';
+        e.preventDefault();
+      });
+
+      document.addEventListener('mousemove', (e) => {
+        if (!isDragging) return;
+
+        const deltaX = e.clientX - startX;
+        const newPreviewWidth = startPreviewWidth + deltaX;
+        const newConfiguratorWidth = startConfiguratorWidth - deltaX;
+
+        // Min/Max constraints
+        const minPreviewWidth = 300;
+        const maxPreviewWidth = window.innerWidth - 300;
+        const minConfiguratorWidth = 300;
+        const maxConfiguratorWidth = window.innerWidth - 300;
+
+        if (newPreviewWidth >= minPreviewWidth && newPreviewWidth <= maxPreviewWidth &&
+            newConfiguratorWidth >= minConfiguratorWidth && newConfiguratorWidth <= maxConfiguratorWidth) {
+          previewPanel.style.width = newPreviewWidth + 'px';
+          previewPanel.style.flex = 'none';
+          configuratorPanel.style.width = newConfiguratorWidth + 'px';
+          configuratorPanel.style.flex = 'none';
+          
+          // Trigger resize on engine (with small delay to ensure DOM updated)
+          setTimeout(() => {
+            window.dispatchEvent(new Event('resize'));
+          }, 10);
+        }
+      });
+
+      document.addEventListener('mouseup', () => {
+        if (isDragging) {
+          isDragging = false;
+          divider.classList.remove('dragging');
+          document.body.style.cursor = '';
+          document.body.style.userSelect = '';
+        }
+      });
+    })();
+  </script>
 
   <script type="module" src="/src/main.ts"></script>
 </body>
