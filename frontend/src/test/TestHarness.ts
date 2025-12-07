@@ -253,9 +253,15 @@ export class TestHarness {
       this.updatePrice();
     };
 
+    // Expose CardGeometry instance globally for debugging
+    (window as any).card = this.cardGeometry;
+    (window as any).cardMesh = this.cardMesh;
+
     console.log('Global controls exposed:');
     console.log('  setCardWidth(width), setCardHeight(height), setCardThickness(thickness), setCardCornerRadius(radius)');
     console.log('  toggleFoil(enabled?), toggleUV(enabled?), toggleEmboss(enabled?)');
+    console.log('  window.card - CardGeometry instance');
+    console.log('  window.cardMesh - THREE.Mesh instance');
   }
 
   /**
@@ -617,12 +623,41 @@ export class TestHarness {
    * Update card dimensions
    */
   private updateDimensions(): void {
+    console.log('[TestHarness] Updating dimensions:', {
+      width: this.width,
+      height: this.height,
+      thickness: this.thickness,
+      cornerRadius: this.cornerRadius
+    });
+
+    // Update geometry
     this.cardGeometry.updateDimensions(
       this.width,
       this.height,
       this.thickness,
       this.cornerRadius
     );
+
+    // Verify mesh is using the correct geometry
+    if (this.cardMesh.geometry !== this.cardGeometry.geometry) {
+      console.warn('[TestHarness] Mesh geometry mismatch! Updating mesh reference...');
+      this.cardMesh.geometry.dispose();
+      this.cardMesh.geometry = this.cardGeometry.geometry;
+    }
+
+    // Verify geometry attributes are updated
+    const positionAttr = this.cardMesh.geometry.getAttribute('position');
+    if (positionAttr) {
+      console.log('[TestHarness] Position attribute updated:', {
+        count: positionAttr.count,
+        needsUpdate: positionAttr.needsUpdate,
+        firstVertex: [
+          positionAttr.getX(0),
+          positionAttr.getY(0),
+          positionAttr.getZ(0)
+        ]
+      });
+    }
   }
 
   /**

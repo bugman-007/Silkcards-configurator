@@ -39,7 +39,7 @@ export class CardGeometry {
     this.height = height;
     this.thickness = thickness;
     this.cornerRadius = cornerRadius;
-    this.buildGeometry();
+    this.rebuildGeometry();
   }
 
   /**
@@ -51,14 +51,18 @@ export class CardGeometry {
 
   /**
    * Build the complete card geometry with front, back, and sides
+   * Called only during initial construction
    */
   private buildGeometry(): void {
-    // Dispose old geometry if it exists
-    if (this._geometry) {
-      this._geometry.dispose();
-    }
     this._geometry = new THREE.BufferGeometry();
+    this.rebuildGeometry();
+  }
 
+  /**
+   * Rebuild geometry by updating existing attributes in place
+   * This ensures the mesh reference stays valid
+   */
+  private rebuildGeometry(): void {
     const positions: number[] = [];
     const normals: number[] = [];
     const uvs: number[] = [];
@@ -103,13 +107,47 @@ export class CardGeometry {
       halfThickness
     );
 
-    // Set geometry attributes
-    this._geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
-    this._geometry.setAttribute('normal', new THREE.Float32BufferAttribute(normals, 3));
-    this._geometry.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
+    // Update or create geometry attributes
+    const positionAttr = this._geometry.getAttribute('position') as THREE.BufferAttribute | null;
+    const normalAttr = this._geometry.getAttribute('normal') as THREE.BufferAttribute | null;
+    const uvAttr = this._geometry.getAttribute('uv') as THREE.BufferAttribute | null;
+
+    const positionArray = new Float32Array(positions);
+    const normalArray = new Float32Array(normals);
+    const uvArray = new Float32Array(uvs);
+
+    // Update existing attributes if they exist and have the same count
+    if (positionAttr && positionAttr.count === positions.length / 3) {
+      positionAttr.array.set(positionArray);
+      positionAttr.needsUpdate = true;
+    } else {
+      if (positionAttr) positionAttr.dispose();
+      const newAttr = new THREE.Float32BufferAttribute(positionArray, 3);
+      this._geometry.setAttribute('position', newAttr);
+    }
+
+    if (normalAttr && normalAttr.count === normals.length / 3) {
+      normalAttr.array.set(normalArray);
+      normalAttr.needsUpdate = true;
+    } else {
+      if (normalAttr) normalAttr.dispose();
+      const newAttr = new THREE.Float32BufferAttribute(normalArray, 3);
+      this._geometry.setAttribute('normal', newAttr);
+    }
+
+    if (uvAttr && uvAttr.count === uvs.length / 2) {
+      uvAttr.array.set(uvArray);
+      uvAttr.needsUpdate = true;
+    } else {
+      if (uvAttr) uvAttr.dispose();
+      const newAttr = new THREE.Float32BufferAttribute(uvArray, 2);
+      this._geometry.setAttribute('uv', newAttr);
+    }
+
+    // Update index
     this._geometry.setIndex(indices);
     
-    // Compute bounding volumes
+    // Compute bounding volumes (required after geometry changes)
     this._geometry.computeBoundingBox();
     this._geometry.computeBoundingSphere();
   }

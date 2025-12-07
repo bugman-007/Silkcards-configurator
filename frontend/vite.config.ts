@@ -6,7 +6,12 @@ export default defineConfig({
   publicDir: 'public',
   server: {
     port: 3000,
-    open: true
+    host: true, // Enable network access
+    open: true,
+    hmr: {
+      clientPort: 3000, // Use same port for HMR WebSocket
+      protocol: 'ws'
+    }
   }
 });
 
