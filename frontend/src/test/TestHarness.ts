@@ -17,7 +17,7 @@ export class TestHarness {
   // Current values
   private width: number = 88.9; // 3.5" in mm (default: Traditional)
   private height: number = 50.8; // 2" in mm
-  private thickness: number = 5.64; // 16pt in mm (default)
+  private thickness: number = 0.56444; // 16pt in mm (1pt = 0.352778mm)
   private cornerRadius: number = 5;
   private isCustomSize: boolean = false;
 
@@ -429,8 +429,8 @@ export class TestHarness {
           option.classList.add('selected');
           
           // Get thickness from data attribute (in mm)
-          const thickness = parseFloat(option.getAttribute('data-thickness') || '5.64');
-          this.thickness = thickness;
+          const thickness = parseFloat(option.getAttribute('data-thickness') || '5.6444');
+          this.thickness = thickness/10;
           
           this.updateDimensions();
           this.updatePrice();
