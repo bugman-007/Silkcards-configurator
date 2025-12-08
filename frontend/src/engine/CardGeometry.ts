@@ -107,27 +107,52 @@ export class CardGeometry {
       halfThickness
     );
 
-    // Update or create geometry attributes
+    // Calculate vertex count
+    const vertexCount = positions.length / 3;
+    const indexCount = indices.length;
+
+    // Validate: index count must not exceed vertex count
+    if (indexCount > 0) {
+      const maxIndex = Math.max(...indices);
+      if (maxIndex >= vertexCount) {
+        console.error(`CardGeometry: Invalid index reference! Max index ${maxIndex} >= vertex count ${vertexCount}`);
+        throw new Error(`Geometry index buffer mismatch: indices reference vertices beyond available count`);
+      }
+    }
+
+    // Get existing attributes
     const positionAttr = this._geometry.getAttribute('position') as THREE.BufferAttribute | null;
     const normalAttr = this._geometry.getAttribute('normal') as THREE.BufferAttribute | null;
     const uvAttr = this._geometry.getAttribute('uv') as THREE.BufferAttribute | null;
+    const existingIndex = this._geometry.getIndex();
 
+    // Create typed arrays
     const positionArray = new Float32Array(positions);
     const normalArray = new Float32Array(normals);
     const uvArray = new Float32Array(uvs);
 
-    // Update existing attributes if they exist and have the same count
-    if (positionAttr && positionAttr.count === positions.length / 3) {
-      positionAttr.array.set(positionArray);
+    // Determine if we need Uint16Array or Uint32Array for indices
+    const maxIndexValue = indexCount > 0 ? Math.max(...indices) : 0;
+    const useUint32 = maxIndexValue > 65535;
+    const indexArray = useUint32 
+      ? new Uint32Array(indices) 
+      : new Uint16Array(indices);
+
+    // Update or recreate position attribute
+    if (positionAttr && positionAttr.count === vertexCount) {
+      // Same count: update in place
+      (positionAttr.array as Float32Array).set(positionArray);
       positionAttr.needsUpdate = true;
     } else {
+      // Different count: dispose old and create new
       if (positionAttr) positionAttr.dispose();
       const newAttr = new THREE.Float32BufferAttribute(positionArray, 3);
       this._geometry.setAttribute('position', newAttr);
     }
 
-    if (normalAttr && normalAttr.count === normals.length / 3) {
-      normalAttr.array.set(normalArray);
+    // Update or recreate normal attribute
+    if (normalAttr && normalAttr.count === vertexCount) {
+      (normalAttr.array as Float32Array).set(normalArray);
       normalAttr.needsUpdate = true;
     } else {
       if (normalAttr) normalAttr.dispose();
@@ -135,8 +160,9 @@ export class CardGeometry {
       this._geometry.setAttribute('normal', newAttr);
     }
 
-    if (uvAttr && uvAttr.count === uvs.length / 2) {
-      uvAttr.array.set(uvArray);
+    // Update or recreate UV attribute
+    if (uvAttr && uvAttr.count === vertexCount) {
+      (uvAttr.array as Float32Array).set(uvArray);
       uvAttr.needsUpdate = true;
     } else {
       if (uvAttr) uvAttr.dispose();
@@ -144,12 +170,47 @@ export class CardGeometry {
       this._geometry.setAttribute('uv', newAttr);
     }
 
-    // Update index
-    this._geometry.setIndex(indices);
+    // Update or recreate index buffer
+    // CRITICAL: Index buffer MUST match vertex count or GPU will throw GL_INVALID_OPERATION
+    if (existingIndex) {
+      const existingIndexCount = existingIndex.count;
+      const existingArrayType = existingIndex.array instanceof Uint32Array ? 'uint32' : 'uint16';
+      const newArrayType = indexArray instanceof Uint32Array ? 'uint32' : 'uint16';
+      
+      // Check if we can update in place (same count AND same type)
+      if (existingIndexCount === indexCount && existingArrayType === newArrayType) {
+        // Same count and type: update in place
+        (existingIndex.array as Uint16Array | Uint32Array).set(indexArray);
+        existingIndex.needsUpdate = true;
+      } else {
+        // Different count or type: dispose old and create new
+        existingIndex.dispose();
+        this._geometry.setIndex(new THREE.BufferAttribute(indexArray, 1));
+        const newIndex = this._geometry.getIndex();
+        if (newIndex) {
+          newIndex.needsUpdate = true;
+        }
+      }
+    } else {
+      // No existing index: create new
+      this._geometry.setIndex(new THREE.BufferAttribute(indexArray, 1));
+      const newIndex = this._geometry.getIndex();
+      if (newIndex) {
+        newIndex.needsUpdate = true;
+      }
+    }
+
+    // Set drawRange to ensure we only draw valid geometry
+    this._geometry.setDrawRange(0, indexCount);
     
     // Compute bounding volumes (required after geometry changes)
     this._geometry.computeBoundingBox();
     this._geometry.computeBoundingSphere();
+
+    // Debug log for verification
+    const finalVertexCount = this._geometry.getAttribute('position').count;
+    const finalIndexCount = this._geometry.getIndex()?.count || 0;
+    console.log(`CardGeometry rebuilt: ${finalVertexCount} vertices, ${finalIndexCount} indices (W:${this.width.toFixed(1)}, H:${this.height.toFixed(1)}, T:${this.thickness.toFixed(3)})`);
   }
 
   /**
@@ -334,13 +395,21 @@ export class CardGeometry {
     }
 
     // Create side face quads (two triangles per quad)
+    // Each point has 2 vertices: front (even) and back (odd)
     for (let i = 0; i < numPoints; i++) {
       const next = (i + 1) % numPoints;
-      const base = startIndex + i * 2;
+      
+      // Calculate correct vertex indices for current and next points
+      const iFront = startIndex + i * 2;      // Current point, front edge
+      const iBack = startIndex + i * 2 + 1;   // Current point, back edge
+      const nextFront = startIndex + next * 2; // Next point, front edge
+      const nextBack = startIndex + next * 2 + 1; // Next point, back edge
 
-      // Quad as two triangles
-      indices.push(base, base + 1, base + 2);
-      indices.push(base + 1, base + 3, base + 2);
+      // Quad as two triangles (winding order: front face outward)
+      // Triangle 1: iFront -> iBack -> nextFront
+      indices.push(iFront, iBack, nextFront);
+      // Triangle 2: iBack -> nextBack -> nextFront
+      indices.push(iBack, nextBack, nextFront);
     }
   }
 
