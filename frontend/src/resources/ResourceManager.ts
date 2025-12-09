@@ -103,6 +103,61 @@ export class ResourceManager {
   }
 
   /**
+   * Load texture from URL (supports both file:// and http:// URLs)
+   * Handles object URLs created from file uploads
+   * Returns Promise<THREE.Texture>
+   */
+  static async loadTextureFromURL(url: string): Promise<THREE.Texture> {
+    // Check cache first (use URL as key)
+    if (this.loadedTextures.has(url)) {
+      return this.loadedTextures.get(url)!;
+    }
+
+    if (!this.isInitialized) {
+      await this.init();
+    }
+
+    if (!this.textureLoader) {
+      throw new Error('ResourceManager not initialized');
+    }
+
+    return new Promise((resolve, reject) => {
+      this.textureLoader!.load(
+        url,
+        (texture) => {
+          texture.flipY = false; // For masks and artwork
+          texture.colorSpace = THREE.SRGBColorSpace;
+          this.loadedTextures.set(url, texture);
+          resolve(texture);
+        },
+        undefined,
+        (error) => {
+          console.error(`Failed to load texture from URL ${url}:`, error);
+          reject(error);
+        }
+      );
+    });
+  }
+
+  /**
+   * Get a cached texture if it exists, otherwise return null
+   */
+  static getCachedTexture(url: string): THREE.Texture | null {
+    return this.loadedTextures.get(url) || null;
+  }
+
+  /**
+   * Remove a texture from cache and dispose it
+   */
+  static disposeTexture(url: string): void {
+    const texture = this.loadedTextures.get(url);
+    if (texture) {
+      texture.dispose();
+      this.loadedTextures.delete(url);
+    }
+  }
+
+  /**
    * Create a placeholder texture (for testing when files don't exist)
    */
   static createPlaceholderTexture(

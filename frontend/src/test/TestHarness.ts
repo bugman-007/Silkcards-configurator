@@ -3,6 +3,9 @@ import { EngineController } from '../engine/EngineController.js';
 import { CardGeometry } from '../engine/CardGeometry.js';
 import { MaterialPipeline } from '../engine/MaterialPipeline.js';
 import { ResourceManager } from '../resources/ResourceManager.js';
+import { ConfiguratorController } from '../configurator/ConfiguratorController.js';
+import { EngineBridge } from '../configurator/EngineBridge.js';
+import type { LayerSide } from '../configurator/ConfigState.js';
 
 /**
  * Test Harness
@@ -13,6 +16,10 @@ export class TestHarness {
   private cardGeometry: CardGeometry;
   private material: THREE.ShaderMaterial;
   private cardMesh: THREE.Mesh;
+  
+  // Phase 2: Configurator
+  private configController: ConfiguratorController;
+  private engineBridge: EngineBridge;
 
   // Current values
   private width: number = 88.9; // 3.5" in mm (default: Traditional)
@@ -141,12 +148,17 @@ export class TestHarness {
     // Step 7: Start render loop
     this.engineController.start();
 
+    // Phase 2: Initialize ConfiguratorController and EngineBridge
+    this.configController = new ConfiguratorController();
+    this.engineBridge = new EngineBridge(this.configController, this.material);
+
     // Set up update loop for material uniforms
     this.setupUpdateLoop();
 
     // Set up UI and controls
     this.setupUI();
     this.setupEventListeners();
+    this.setupPhase2EventListeners(); // Phase 2: New event listeners
     this.updatePrice();
     this.showStep('size');
 
@@ -472,8 +484,31 @@ export class TestHarness {
     if (this.colorSwatches) {
       this.colorSwatches.forEach(swatch => {
         swatch.addEventListener('click', () => {
+          // Update UI selection
           this.colorSwatches!.forEach(s => s.classList.remove('selected'));
           swatch.classList.add('selected');
+          
+          // Get color from swatch's style attribute
+          const swatchEl = swatch as HTMLElement;
+          const styleAttr = swatchEl.getAttribute('style');
+          
+          if (styleAttr) {
+            // Parse hex color from style attribute (format: "background: #8B4513;")
+            const match = styleAttr.match(/background:\s*(#[0-9A-Fa-f]{6}|#[0-9A-Fa-f]{3})/);
+            if (match && match[1]) {
+              const hexColor = match[1];
+              MaterialPipeline.updateBaseColor(this.material, hexColor);
+              console.log('Card color updated to:', hexColor);
+            } else {
+              // Try to get computed style as fallback
+              const computed = window.getComputedStyle(swatchEl);
+              const bgColor = computed.backgroundColor;
+              if (bgColor && bgColor !== 'rgba(0, 0, 0, 0)' && bgColor !== 'transparent') {
+                MaterialPipeline.updateBaseColor(this.material, bgColor);
+                console.log('Card color updated to:', bgColor);
+              }
+            }
+          }
         });
       });
     }
@@ -696,6 +731,352 @@ export class TestHarness {
     }
 
     this.priceDisplay.textContent = `£${price.toFixed(2)}`;
+  }
+
+  /**
+   * Phase 2: Set up event listeners for configurator controls
+   */
+  private setupPhase2EventListeners(): void {
+    // Foil controls
+    const foilEnabled = document.getElementById('foil-enabled') as HTMLInputElement;
+    const foilOptions = document.getElementById('foil-options');
+    const foilColorOptions = document.querySelectorAll('.foil-color-option');
+    const foilTypeOptions = document.querySelectorAll('#foil-options .option-item[data-type]');
+    const foilSideCheckboxes = document.querySelectorAll('#foil-options .side-checkboxes input[type="checkbox"]');
+    const foilMaskUpload = document.getElementById('foil-mask-upload') as HTMLInputElement;
+    const foilMaskFilename = document.getElementById('foil-mask-filename');
+
+    if (foilEnabled && foilOptions) {
+      foilEnabled.addEventListener('change', () => {
+        const enabled = foilEnabled.checked;
+        foilOptions.style.display = enabled ? 'block' : 'none';
+        
+        const sides: LayerSide[] = [];
+        foilSideCheckboxes.forEach((cb: Element) => {
+          const checkbox = cb as HTMLInputElement;
+          if (checkbox.checked) {
+            const side = checkbox.getAttribute('data-side') as LayerSide;
+            if (side) sides.push(side);
+          }
+        });
+        
+        this.configController.setFoilEnabled(sides, enabled);
+        this.updatePrice();
+      });
+    }
+
+    foilColorOptions.forEach(option => {
+      option.addEventListener('click', () => {
+        foilColorOptions.forEach(o => o.classList.remove('selected'));
+        option.classList.add('selected');
+        const color = option.getAttribute('data-color');
+        if (color) {
+          this.configController.setFoilColor(color as any);
+        }
+      });
+    });
+
+    foilTypeOptions.forEach(option => {
+      option.addEventListener('click', () => {
+        foilTypeOptions.forEach(o => o.classList.remove('selected'));
+        option.classList.add('selected');
+        const type = option.getAttribute('data-type');
+        if (type) {
+          this.configController.setFoilType(type as any);
+        }
+      });
+    });
+
+    if (foilSideCheckboxes.length > 0) {
+      foilSideCheckboxes.forEach((cb: Element) => {
+        const checkbox = cb as HTMLInputElement;
+        checkbox.addEventListener('change', () => {
+          const sides: LayerSide[] = [];
+          foilSideCheckboxes.forEach((c: Element) => {
+            const chk = c as HTMLInputElement;
+            if (chk.checked) {
+              const side = chk.getAttribute('data-side') as LayerSide;
+              if (side) sides.push(side);
+            }
+          });
+          if (foilEnabled?.checked) {
+            this.configController.setFoilEnabled(sides, true);
+          }
+        });
+      });
+    }
+
+    if (foilMaskUpload) {
+      foilMaskUpload.addEventListener('change', async (e) => {
+        const file = (e.target as HTMLInputElement).files?.[0];
+        if (file) {
+          const url = URL.createObjectURL(file);
+          this.configController.setFoilCustomMask('front', url);
+          if (foilMaskFilename) {
+            foilMaskFilename.textContent = file.name;
+          }
+        }
+      });
+    }
+
+    // UV controls
+    const uvEnabled = document.getElementById('uv-enabled') as HTMLInputElement;
+    const uvOptions = document.getElementById('uv-options');
+    const uvTypeOptions = document.querySelectorAll('#uv-options .option-item[data-type]');
+    const uvSideCheckboxes = document.querySelectorAll('#uv-options .side-checkboxes input[type="checkbox"]');
+    const uvMaskUpload = document.getElementById('uv-mask-upload') as HTMLInputElement;
+    const uvMaskFilename = document.getElementById('uv-mask-filename');
+
+    if (uvEnabled && uvOptions) {
+      uvEnabled.addEventListener('change', () => {
+        const enabled = uvEnabled.checked;
+        uvOptions.style.display = enabled ? 'block' : 'none';
+        
+        const sides: LayerSide[] = [];
+        uvSideCheckboxes.forEach((cb: Element) => {
+          const checkbox = cb as HTMLInputElement;
+          if (checkbox.checked) {
+            const side = checkbox.getAttribute('data-side') as LayerSide;
+            if (side) sides.push(side);
+          }
+        });
+        
+        this.configController.setUVEnabled(sides, enabled);
+        this.updatePrice();
+      });
+    }
+
+    uvTypeOptions.forEach(option => {
+      option.addEventListener('click', () => {
+        uvTypeOptions.forEach(o => o.classList.remove('selected'));
+        option.classList.add('selected');
+        const type = option.getAttribute('data-type');
+        if (type) {
+          this.configController.setUVType(type as any);
+        }
+      });
+    });
+
+    if (uvMaskUpload) {
+      uvMaskUpload.addEventListener('change', async (e) => {
+        const file = (e.target as HTMLInputElement).files?.[0];
+        if (file) {
+          const url = URL.createObjectURL(file);
+          this.configController.setUVCustomMask('front', url);
+          if (uvMaskFilename) {
+            uvMaskFilename.textContent = file.name;
+          }
+        }
+      });
+    }
+
+    // Emboss controls
+    const embossEnabled = document.getElementById('emboss-enabled') as HTMLInputElement;
+    const embossOptions = document.getElementById('emboss-options');
+    const embossModeOptions = document.querySelectorAll('#emboss-options .option-item[data-mode]');
+    const embossSideCheckboxes = document.querySelectorAll('#emboss-options .side-checkboxes input[type="checkbox"]');
+    const embossHeightMapUpload = document.getElementById('emboss-heightmap-upload') as HTMLInputElement;
+    const embossHeightMapFilename = document.getElementById('emboss-heightmap-filename');
+
+    if (embossEnabled && embossOptions) {
+      embossEnabled.addEventListener('change', () => {
+        const enabled = embossEnabled.checked;
+        embossOptions.style.display = enabled ? 'block' : 'none';
+        
+        const sides: LayerSide[] = [];
+        embossSideCheckboxes.forEach((cb: Element) => {
+          const checkbox = cb as HTMLInputElement;
+          if (checkbox.checked) {
+            const side = checkbox.getAttribute('data-side') as LayerSide;
+            if (side) sides.push(side);
+          }
+        });
+        
+        this.configController.setEmbossEnabled(sides, enabled);
+        this.updatePrice();
+      });
+    }
+
+    embossModeOptions.forEach(option => {
+      option.addEventListener('click', () => {
+        embossModeOptions.forEach(o => o.classList.remove('selected'));
+        option.classList.add('selected');
+        const mode = option.getAttribute('data-mode');
+        if (mode) {
+          this.configController.setEmbossMode(mode as any);
+        }
+      });
+    });
+
+    if (embossHeightMapUpload) {
+      embossHeightMapUpload.addEventListener('change', async (e) => {
+        const file = (e.target as HTMLInputElement).files?.[0];
+        if (file) {
+          const url = URL.createObjectURL(file);
+          this.configController.setEmbossHeightMap('front', url);
+          if (embossHeightMapFilename) {
+            embossHeightMapFilename.textContent = file.name;
+          }
+        }
+      });
+    }
+
+    // Die Cut controls
+    const diecutEnabled = document.getElementById('diecut-enabled') as HTMLInputElement;
+    const diecutOptions = document.getElementById('diecut-options');
+    const diecutTypeOptions = document.querySelectorAll('#diecut-options .option-item[data-type]');
+    const diecutMaskUpload = document.getElementById('diecut-mask-upload') as HTMLInputElement;
+    const diecutMaskFilename = document.getElementById('diecut-mask-filename');
+
+    if (diecutEnabled && diecutOptions) {
+      diecutEnabled.addEventListener('change', () => {
+        const enabled = diecutEnabled.checked;
+        diecutOptions.style.display = enabled ? 'block' : 'none';
+        // Die cut doesn't affect material pipeline in Phase 2
+        this.updatePrice();
+      });
+    }
+
+    // Edge controls
+    const edgesEnabled = document.getElementById('edges-enabled') as HTMLInputElement;
+    const edgesOptions = document.getElementById('edges-options');
+    const edgeCountOptions = document.querySelectorAll('#edges-options .option-item[data-count]');
+    const edgeInkTypeOptions = document.querySelectorAll('#edges-options .option-item[data-inktype]');
+    const edgeColorPicker = document.getElementById('edge-color-picker') as HTMLInputElement;
+    const foilEdgesCheckbox = document.getElementById('foil-edges-checkbox') as HTMLInputElement;
+
+    if (edgesEnabled && edgesOptions) {
+      edgesEnabled.addEventListener('change', () => {
+        const enabled = edgesEnabled.checked;
+        edgesOptions.style.display = enabled ? 'block' : 'none';
+        this.configController.setEdgeEnabled(enabled);
+        this.updatePrice();
+      });
+    }
+
+    edgeCountOptions.forEach(option => {
+      option.addEventListener('click', () => {
+        edgeCountOptions.forEach(o => o.classList.remove('selected'));
+        option.classList.add('selected');
+        const count = parseInt(option.getAttribute('data-count') || '0');
+        this.configController.setEdgeCount(count as any);
+      });
+    });
+
+    if (edgeColorPicker) {
+      edgeColorPicker.addEventListener('change', () => {
+        this.configController.setEdgeColor(edgeColorPicker.value);
+      });
+    }
+
+    if (foilEdgesCheckbox) {
+      foilEdgesCheckbox.addEventListener('change', () => {
+        this.configController.setFoilEdges(foilEdgesCheckbox.checked);
+      });
+    }
+
+    // Extras controls
+    const pmsInkCheckbox = document.getElementById('pms-ink-checkbox') as HTMLInputElement;
+    const perforateCheckbox = document.getElementById('perforate-checkbox') as HTMLInputElement;
+    const variableDataCheckbox = document.getElementById('variable-data-checkbox') as HTMLInputElement;
+    const variableDataText = document.getElementById('variable-data-text') as HTMLInputElement;
+    const qrCodeCheckbox = document.getElementById('qr-code-checkbox') as HTMLInputElement;
+
+    if (pmsInkCheckbox) {
+      pmsInkCheckbox.addEventListener('change', () => {
+        this.configController.setPMSInk(pmsInkCheckbox.checked);
+        this.updatePrice();
+      });
+    }
+
+    if (perforateCheckbox) {
+      perforateCheckbox.addEventListener('change', () => {
+        this.configController.setPerforate(perforateCheckbox.checked);
+        this.updatePrice();
+      });
+    }
+
+    if (variableDataCheckbox) {
+      variableDataCheckbox.addEventListener('change', () => {
+        const enabled = variableDataCheckbox.checked;
+        if (variableDataText) {
+          variableDataText.style.display = enabled ? 'block' : 'none';
+        }
+        this.configController.setVariableData(enabled, variableDataText?.value);
+      });
+    }
+
+    if (variableDataText) {
+      variableDataText.addEventListener('input', () => {
+        if (variableDataCheckbox?.checked) {
+          this.configController.setVariableData(true, variableDataText.value);
+        }
+      });
+    }
+
+    if (qrCodeCheckbox) {
+      qrCodeCheckbox.addEventListener('change', () => {
+        this.configController.setQRCode(qrCodeCheckbox.checked);
+        this.updatePrice();
+      });
+    }
+
+    // Artwork uploads
+    const frontArtworkUpload = document.getElementById('front-artwork-upload') as HTMLInputElement;
+    const frontArtworkFilename = document.getElementById('front-artwork-filename');
+    const backArtworkUpload = document.getElementById('back-artwork-upload') as HTMLInputElement;
+    const backArtworkFilename = document.getElementById('back-artwork-filename');
+
+    if (frontArtworkUpload) {
+      frontArtworkUpload.addEventListener('change', async (e) => {
+        const file = (e.target as HTMLInputElement).files?.[0];
+        if (file) {
+          const url = URL.createObjectURL(file);
+          this.configController.setArtwork('front', url);
+          if (frontArtworkFilename) {
+            frontArtworkFilename.textContent = file.name;
+          }
+        }
+      });
+    }
+
+    if (backArtworkUpload) {
+      backArtworkUpload.addEventListener('change', async (e) => {
+        const file = (e.target as HTMLInputElement).files?.[0];
+        if (file) {
+          const url = URL.createObjectURL(file);
+          this.configController.setArtwork('back', url);
+          if (backArtworkFilename) {
+            backArtworkFilename.textContent = file.name;
+          }
+        }
+      });
+    }
+
+    // Preset buttons
+    const presetButtons = document.querySelectorAll('.preset-btn');
+    presetButtons.forEach(btn => {
+      btn.addEventListener('click', () => {
+        presetButtons.forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        const preset = btn.getAttribute('data-preset');
+        if (preset) {
+          this.configController.setPreset(preset as any);
+          // Update UI to reflect preset
+          this.syncUIWithConfig();
+          this.updatePrice();
+        }
+      });
+    });
+  }
+
+  /**
+   * Sync UI state with current configuration
+   */
+  private syncUIWithConfig(): void {
+    const state = this.configController.getState();
+    // This method can be expanded to update all UI elements based on config state
+    // For now, it's a placeholder for future enhancement
   }
 
   /**

@@ -8,6 +8,7 @@ uniform sampler2D foilMask;
 uniform sampler2D uvMask;
 uniform sampler2D embossMap;
 
+uniform vec3 uBaseColor;
 uniform float uGloss;
 uniform float uEmbossStrength;
 
@@ -19,7 +20,8 @@ uniform float uEmbossStrength;
 void main() {
     vec4 baseColor = texture2D(artworkMap, vUv);
 
-    vec3 color = baseColor.rgb;
+    // Apply base color tint (multiply with artwork)
+    vec3 color = baseColor.rgb * uBaseColor;
 
     color = applyFoilLayer(color, vUv, foilMask);
     color = applyUVLayer(color, vUv, uvMask, uGloss);
