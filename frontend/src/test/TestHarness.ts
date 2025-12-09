@@ -488,6 +488,12 @@ export class TestHarness {
           this.colorSwatches!.forEach(s => s.classList.remove('selected'));
           swatch.classList.add('selected');
           
+          // Deselect custom color swatch if it was selected
+          const customColorSwatch = document.getElementById('custom-color-swatch');
+          if (customColorSwatch) {
+            customColorSwatch.classList.remove('selected');
+          }
+          
           // Get color from swatch's style attribute
           const swatchEl = swatch as HTMLElement;
           const styleAttr = swatchEl.getAttribute('style');
@@ -499,6 +505,11 @@ export class TestHarness {
               const hexColor = match[1];
               MaterialPipeline.updateBaseColor(this.material, hexColor);
               console.log('Card color updated to:', hexColor);
+              
+              // Update custom color picker value to match
+              if (customColorPicker) {
+                customColorPicker.value = hexColor;
+              }
             } else {
               // Try to get computed style as fallback
               const computed = window.getComputedStyle(swatchEl);
@@ -510,6 +521,40 @@ export class TestHarness {
             }
           }
         });
+      });
+    }
+
+    // Custom color picker (rainbow swatch)
+    const customColorPicker = document.getElementById('custom-color-picker') as HTMLInputElement;
+    const customColorSwatch = document.getElementById('custom-color-swatch');
+    
+    if (customColorPicker && customColorSwatch) {
+      customColorPicker.addEventListener('input', (e) => {
+        const color = (e.target as HTMLInputElement).value;
+        
+        // Deselect all predefined swatches
+        if (this.colorSwatches) {
+          this.colorSwatches.forEach(s => {
+            if (!s.classList.contains('custom-color-swatch')) {
+              s.classList.remove('selected');
+            }
+          });
+        }
+        
+        // Select custom color swatch
+        customColorSwatch.classList.add('selected');
+        
+        // Update card color
+        MaterialPipeline.updateBaseColor(this.material, color);
+        console.log('Card color updated to custom color:', color);
+      });
+      
+      // When custom swatch is clicked, also handle selection state
+      customColorSwatch.addEventListener('click', (e) => {
+        // If clicking on the swatch itself (not the input), trigger the input click
+        if (e.target === customColorSwatch || (e.target as HTMLElement).classList.contains('rainbow-gradient')) {
+          customColorPicker.click();
+        }
       });
     }
 

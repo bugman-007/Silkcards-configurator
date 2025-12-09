@@ -17,7 +17,9 @@ export class EngineController {
   private isInitialized: boolean = false;
 
   // Lighting
+  // Preview clarity lighting rig - supplements HDR environment for edge/corner/thickness visibility
   private keyLight: THREE.DirectionalLight | null = null;
+  private fillLight: THREE.DirectionalLight | null = null;
   private rimLight: THREE.DirectionalLight | null = null;
   private ambientLight: THREE.AmbientLight | null = null;
 
@@ -54,7 +56,7 @@ export class EngineController {
     // Create camera
     const aspect = this.canvas.clientWidth / this.canvas.clientHeight || 1;
     this.camera = new THREE.PerspectiveCamera(45, aspect, 0.1, 1000);
-    this.camera.position.set(0, 0, 150);
+    this.camera.position.set(100, 0, 150);
     this.camera.lookAt(0, 0, 0);
 
     // Set up resize handler
@@ -97,21 +99,41 @@ export class EngineController {
   }
 
   /**
-   * Set up lighting (key light + rim light)
+   * Set up lighting rig for preview clarity
+   * 
+   * This lighting setup supplements the HDR environment to improve visibility of:
+   * - Card edges and corners
+   * - Thickness/geometry form
+   * - Overall shape definition
+   * 
+   * All lights are neutral white and subtle to maintain realistic appearance.
+   * HDR environment remains the primary lighting source for reflections.
    */
   private setupLighting(): void {
-    // Ambient light for base illumination
-    this.ambientLight = new THREE.AmbientLight(0xffffff, 0.3);
+    // Ambient light for base fill illumination
+    // Kept subtle to allow HDR environment to dominate
+    this.ambientLight = new THREE.AmbientLight(0xffffff, 0.25);
     this.scene.add(this.ambientLight);
 
-    // Key light (main directional light)
-    this.keyLight = new THREE.DirectionalLight(0xffffff, 1.0);
-    this.keyLight.position.set(50, 50, 50);
+    // Key light - positioned to reveal card edges and thickness
+    // Angled from upper-right-front to create clear edge definition
+    // Intensity balanced to enhance visibility without overexposure
+    this.keyLight = new THREE.DirectionalLight(0xffffff, 0.8);
+    this.keyLight.position.set(60, 70, 60);
     this.scene.add(this.keyLight);
 
-    // Rim light (back light for edge definition)
-    this.rimLight = new THREE.DirectionalLight(0xffffff, 0.5);
-    this.rimLight.position.set(-50, 30, -50);
+    // Fill light - softens contrast from key light for realistic appearance
+    // Positioned opposite key light to reduce harsh shadows
+    // Lower intensity ensures it doesn't flatten the form
+    this.fillLight = new THREE.DirectionalLight(0xffffff, 0.4);
+    this.fillLight.position.set(-40, 40, -30);
+    this.scene.add(this.fillLight);
+
+    // Rim light - enhances silhouette and edge clarity against background
+    // Positioned behind and above to create edge highlight
+    // Subtle intensity maintains natural look while improving definition
+    this.rimLight = new THREE.DirectionalLight(0xffffff, 0.6);
+    this.rimLight.position.set(-50, 50, -70);
     this.scene.add(this.rimLight);
   }
 
@@ -245,6 +267,11 @@ export class EngineController {
       this.scene.remove(this.keyLight);
       this.keyLight.dispose();
       this.keyLight = null;
+    }
+    if (this.fillLight) {
+      this.scene.remove(this.fillLight);
+      this.fillLight.dispose();
+      this.fillLight = null;
     }
     if (this.rimLight) {
       this.scene.remove(this.rimLight);
