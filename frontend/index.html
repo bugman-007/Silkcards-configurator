@@ -55,6 +55,43 @@
     .preview-controls {
       display: flex;
       gap: 10px;
+      align-items: center;
+    }
+
+    .view-mode-selector {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-right: 8px;
+    }
+
+    .view-mode-label {
+      font-size: 13px;
+      font-weight: 500;
+      color: #666;
+      white-space: nowrap;
+    }
+
+    .view-mode-select {
+      padding: 6px 12px;
+      border: 1px solid #e0e0e0;
+      border-radius: 6px;
+      background: white;
+      font-size: 13px;
+      color: #333;
+      cursor: pointer;
+      outline: none;
+      transition: all 0.2s;
+      min-width: 140px;
+    }
+
+    .view-mode-select:hover {
+      border-color: #ff6b35;
+    }
+
+    .view-mode-select:focus {
+      border-color: #ff6b35;
+      box-shadow: 0 0 0 3px rgba(255, 107, 53, 0.1);
     }
 
     .preview-btn {
@@ -816,6 +853,17 @@
       <div class="preview-header">
         <div class="preview-title">3D Preview</div>
         <div class="preview-controls">
+          <!-- View Mode Selector -->
+          <div class="view-mode-selector">
+            <label for="view-mode-select" class="view-mode-label">View Mode:</label>
+            <select id="view-mode-select" class="view-mode-select">
+              <option value="NeutralProof" selected>Neutral Proof</option>
+              <option value="ShowcasePreview">Showcase Preview</option>
+              <option value="FoilInspect">Foil Inspect</option>
+              <option value="UVInspect">UV Inspect</option>
+              <option value="EmbossInspect">Emboss Inspect</option>
+            </select>
+          </div>
           <button class="preview-btn" id="fullscreen-btn" title="Fullscreen">
             <svg viewBox="0 0 24 24">
               <path d="M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z"/>

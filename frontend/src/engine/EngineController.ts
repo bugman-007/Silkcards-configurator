@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { ResourceManager } from '../resources/ResourceManager.js';
+import { LightingController, type LightingPreset } from './LightingController.js';
 
 /**
  * Engine Controller
@@ -16,12 +17,11 @@ export class EngineController {
   private animationId: number | null = null;
   private isInitialized: boolean = false;
 
-  // Lighting
-  // Preview clarity lighting rig - supplements HDR environment for edge/corner/thickness visibility
-  private keyLight: THREE.DirectionalLight | null = null;
-  private fillLight: THREE.DirectionalLight | null = null;
-  private rimLight: THREE.DirectionalLight | null = null;
-  private ambientLight: THREE.AmbientLight | null = null;
+  // Lighting Controller - manages lighting presets
+  private lightingController: LightingController | null = null;
+  
+  // Materials that need lighting updates (registered by TestHarness)
+  private materialsToUpdate: Set<THREE.ShaderMaterial> = new Set();
 
   // Resize handler (stored for cleanup)
   private resizeHandler: () => void;
@@ -56,7 +56,7 @@ export class EngineController {
     // Create camera
     const aspect = this.canvas.clientWidth / this.canvas.clientHeight || 1;
     this.camera = new THREE.PerspectiveCamera(45, aspect, 0.1, 1000);
-    this.camera.position.set(100, 0, 150);
+    this.camera.position.set(0, 0, 150);
     this.camera.lookAt(0, 0, 0);
 
     // Set up resize handler
@@ -69,8 +69,8 @@ export class EngineController {
     // Set up OrbitControls (dev only)
     this.setupControls();
 
-    // Set up lighting
-    this.setupLighting();
+    // Set up lighting controller (manages lighting presets)
+    this.lightingController = new LightingController(this.scene);
 
     // Initialize resource manager and load HDRI environment (async, non-blocking)
     this.initializeResources();
@@ -99,42 +99,29 @@ export class EngineController {
   }
 
   /**
-   * Set up lighting rig for preview clarity
+   * Set lighting preset
+   * Only adjusts light intensities - colors, positions, and HDR remain unchanged
    * 
-   * This lighting setup supplements the HDR environment to improve visibility of:
-   * - Card edges and corners
-   * - Thickness/geometry form
-   * - Overall shape definition
-   * 
-   * All lights are neutral white and subtle to maintain realistic appearance.
-   * HDR environment remains the primary lighting source for reflections.
+   * @param presetName - Name of the preset to apply
    */
-  private setupLighting(): void {
-    // Ambient light for base fill illumination
-    // Kept subtle to allow HDR environment to dominate
-    this.ambientLight = new THREE.AmbientLight(0xffffff, 0.25);
-    this.scene.add(this.ambientLight);
+  setLightingPreset(presetName: LightingPreset): void {
+    if (this.lightingController) {
+      this.lightingController.setLightingPreset(presetName);
+    }
+  }
 
-    // Key light - positioned to reveal card edges and thickness
-    // Angled from upper-right-front to create clear edge definition
-    // Intensity balanced to enhance visibility without overexposure
-    this.keyLight = new THREE.DirectionalLight(0xffffff, 0.8);
-    this.keyLight.position.set(60, 70, 60);
-    this.scene.add(this.keyLight);
+  /**
+   * Get current lighting preset
+   */
+  getLightingPreset(): LightingPreset | null {
+    return this.lightingController?.getCurrentPreset() || null;
+  }
 
-    // Fill light - softens contrast from key light for realistic appearance
-    // Positioned opposite key light to reduce harsh shadows
-    // Lower intensity ensures it doesn't flatten the form
-    this.fillLight = new THREE.DirectionalLight(0xffffff, 0.4);
-    this.fillLight.position.set(-40, 40, -30);
-    this.scene.add(this.fillLight);
-
-    // Rim light - enhances silhouette and edge clarity against background
-    // Positioned behind and above to create edge highlight
-    // Subtle intensity maintains natural look while improving definition
-    this.rimLight = new THREE.DirectionalLight(0xffffff, 0.6);
-    this.rimLight.position.set(-50, 50, -70);
-    this.scene.add(this.rimLight);
+  /**
+   * Get lighting controller (for advanced use)
+   */
+  getLightingController(): LightingController | null {
+    return this.lightingController;
   }
 
   /**
@@ -157,6 +144,20 @@ export class EngineController {
    */
   add(object: THREE.Object3D): void {
     this.scene.add(object);
+  }
+
+  /**
+   * Register a material to receive lighting updates each frame
+   */
+  registerMaterialForLighting(material: THREE.ShaderMaterial): void {
+    this.materialsToUpdate.add(material);
+  }
+
+  /**
+   * Unregister a material from lighting updates
+   */
+  unregisterMaterialForLighting(material: THREE.ShaderMaterial): void {
+    this.materialsToUpdate.delete(material);
   }
 
   /**
@@ -198,8 +199,76 @@ export class EngineController {
       this.controls.update();
     }
 
+    // Update lighting uniforms for registered materials
+    if (this.materialsToUpdate && this.materialsToUpdate.size > 0) {
+      const lightingInfo = this.getLightingInfo();
+      this.materialsToUpdate.forEach(material => {
+        if (material.uniforms.uLightDirection) {
+          material.uniforms.uLightDirection.value.copy(lightingInfo.direction);
+        }
+        if (material.uniforms.uLightColor) {
+          material.uniforms.uLightColor.value.copy(lightingInfo.color);
+        }
+        if (material.uniforms.uAmbientColor) {
+          material.uniforms.uAmbientColor.value.copy(lightingInfo.ambient);
+        }
+        if (material.uniforms.uCameraPosition) {
+          material.uniforms.uCameraPosition.value.copy(lightingInfo.cameraPosition);
+        }
+      });
+    }
+
     // Render
     this.renderer.render(this.scene, this.camera);
+  }
+
+  /**
+   * Get lighting information for shader materials
+   * Returns the primary directional light (key light) information
+   */
+  getLightingInfo(): {
+    direction: THREE.Vector3;
+    color: THREE.Color;
+    ambient: THREE.Color;
+    cameraPosition: THREE.Vector3;
+  } {
+    // Get key light direction (normalized world direction)
+    let lightDirection = new THREE.Vector3(0, 0, 1);
+    let lightColor = new THREE.Color(1, 1, 1);
+    
+    const keyLight = this.lightingController?.getKeyLight();
+    if (keyLight) {
+      // For DirectionalLight, the direction is from the light's position toward the origin
+      // Get world position of the light
+      const worldPos = new THREE.Vector3();
+      keyLight.getWorldPosition(worldPos);
+      
+      // Calculate direction from light position to origin (where the card is)
+      // DirectionalLight illuminates objects as if light rays are parallel
+      // So we normalize the vector from origin to light position
+      lightDirection = worldPos.normalize();
+      
+      // Get light color and intensity
+      lightColor = keyLight.color.clone().multiplyScalar(keyLight.intensity);
+    }
+
+    // Get ambient light color
+    let ambientColor = new THREE.Color(0.25, 0.25, 0.25);
+    const ambientLight = this.lightingController?.getAmbientLight();
+    if (ambientLight) {
+      ambientColor = ambientLight.color.clone().multiplyScalar(ambientLight.intensity);
+    }
+
+    // Get camera position in world space
+    const cameraPosition = new THREE.Vector3();
+    this.camera.getWorldPosition(cameraPosition);
+
+    return {
+      direction: lightDirection,
+      color: lightColor,
+      ambient: ambientColor,
+      cameraPosition: cameraPosition
+    };
   }
 
   /**
@@ -262,26 +331,10 @@ export class EngineController {
       this.controls = null;
     }
 
-    // Remove lights
-    if (this.keyLight) {
-      this.scene.remove(this.keyLight);
-      this.keyLight.dispose();
-      this.keyLight = null;
-    }
-    if (this.fillLight) {
-      this.scene.remove(this.fillLight);
-      this.fillLight.dispose();
-      this.fillLight = null;
-    }
-    if (this.rimLight) {
-      this.scene.remove(this.rimLight);
-      this.rimLight.dispose();
-      this.rimLight = null;
-    }
-    if (this.ambientLight) {
-      this.scene.remove(this.ambientLight);
-      this.ambientLight.dispose();
-      this.ambientLight = null;
+    // Dispose lighting controller
+    if (this.lightingController) {
+      this.lightingController.dispose();
+      this.lightingController = null;
     }
 
     // Dispose resource manager

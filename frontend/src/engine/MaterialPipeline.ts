@@ -45,7 +45,13 @@ export class MaterialPipeline {
         // Material properties
         uBaseColor: { value: new THREE.Color(1.0, 1.0, 1.0) }, // White by default (no tint)
         uGloss: { value: 0.5 },
-        uEmbossStrength: { value: 0.5 }
+        uEmbossStrength: { value: 0.5 },
+
+        // Lighting uniforms (will be updated from scene lights)
+        uLightDirection: { value: new THREE.Vector3(0, 0, 1) },
+        uLightColor: { value: new THREE.Color(1.0, 1.0, 1.0) },
+        uAmbientColor: { value: new THREE.Color(0.3, 0.3, 0.3) },
+        uCameraPosition: { value: new THREE.Vector3(0, 0, 150) }
       },
       side: THREE.DoubleSide
     });
@@ -121,6 +127,32 @@ export class MaterialPipeline {
       ? color 
       : new THREE.Color(color);
     material.uniforms.uBaseColor.value = threeColor;
+  }
+
+  /**
+   * Update lighting uniforms from scene lighting information
+   */
+  static updateLighting(
+    material: THREE.ShaderMaterial,
+    lightingInfo: {
+      direction: THREE.Vector3;
+      color: THREE.Color;
+      ambient: THREE.Color;
+      cameraPosition: THREE.Vector3;
+    }
+  ): void {
+    if (material.uniforms.uLightDirection) {
+      material.uniforms.uLightDirection.value.copy(lightingInfo.direction);
+    }
+    if (material.uniforms.uLightColor) {
+      material.uniforms.uLightColor.value.copy(lightingInfo.color);
+    }
+    if (material.uniforms.uAmbientColor) {
+      material.uniforms.uAmbientColor.value.copy(lightingInfo.ambient);
+    }
+    if (material.uniforms.uCameraPosition) {
+      material.uniforms.uCameraPosition.value.copy(lightingInfo.cameraPosition);
+    }
   }
 
   /**

@@ -32,6 +32,7 @@ export class TestHarness {
   private previewPanel: HTMLElement | null = null;
   private fullscreenBtn: HTMLElement | null = null;
   private screenshotBtn: HTMLElement | null = null;
+  private viewModeSelect: HTMLSelectElement | null = null;
   private stepButtons: NodeListOf<HTMLElement> | null = null;
   private configSections: NodeListOf<HTMLElement> | null = null;
   private priceDisplay: HTMLElement | null = null;
@@ -152,6 +153,9 @@ export class TestHarness {
     this.configController = new ConfiguratorController();
     this.engineBridge = new EngineBridge(this.configController, this.material);
 
+    // Register material for lighting updates
+    this.engineController.registerMaterialForLighting(this.material);
+
     // Set up update loop for material uniforms
     this.setupUpdateLoop();
 
@@ -170,11 +174,16 @@ export class TestHarness {
 
   /**
    * Set up update loop for material uniforms
-   * Note: No uniforms need per-frame updates with the new shader structure
+   * Updates lighting uniforms each frame to reflect scene lighting changes
    */
   private setupUpdateLoop(): void {
-    // No per-frame uniform updates needed
-    // All uniforms are set once and updated only when user changes settings
+    // Update lighting uniforms in the engine's render loop
+    // This will be called from EngineController's update method
+    // For now, we'll update it once and then rely on EngineController to update it
+    if (this.engineController && this.material) {
+      const lightingInfo = this.engineController.getLightingInfo();
+      MaterialPipeline.updateLighting(this.material, lightingInfo);
+    }
   }
 
   /**
@@ -283,6 +292,7 @@ export class TestHarness {
     this.previewPanel = document.getElementById('preview-panel');
     this.fullscreenBtn = document.getElementById('fullscreen-btn');
     this.screenshotBtn = document.getElementById('screenshot-btn');
+    this.viewModeSelect = document.getElementById('view-mode-select') as HTMLSelectElement;
     this.stepButtons = document.querySelectorAll('.step-btn');
     this.configSections = document.querySelectorAll('.config-section');
     this.priceDisplay = document.getElementById('total-price');
@@ -329,6 +339,16 @@ export class TestHarness {
     // Screenshot button
     if (this.screenshotBtn) {
       this.screenshotBtn.addEventListener('click', () => this.takeScreenshot());
+    }
+
+    // View mode selector (lighting preset)
+    if (this.viewModeSelect) {
+      this.viewModeSelect.addEventListener('change', (e) => {
+        const preset = (e.target as HTMLSelectElement).value;
+        if (this.engineController) {
+          this.engineController.setLightingPreset(preset as any);
+        }
+      });
     }
 
     // Step navigation
@@ -678,6 +698,14 @@ export class TestHarness {
    * Show specific configuration step
    */
   private showStep(step: string): void {
+    // Re-query elements if they're not available (defensive check)
+    if (!this.stepButtons || this.stepButtons.length === 0) {
+      this.stepButtons = document.querySelectorAll('.step-btn');
+    }
+    if (!this.configSections || this.configSections.length === 0) {
+      this.configSections = document.querySelectorAll('.config-section');
+    }
+
     if (this.stepButtons) {
       this.stepButtons.forEach(btn => {
         if (btn.getAttribute('data-step') === step) {
@@ -690,12 +718,15 @@ export class TestHarness {
 
     if (this.configSections) {
       this.configSections.forEach(section => {
-        if (section.getAttribute('data-step') === step) {
+        const sectionStep = section.getAttribute('data-step');
+        if (sectionStep === step) {
           section.style.display = 'block';
         } else {
           section.style.display = 'none';
         }
       });
+    } else {
+      console.warn('Config sections not found when trying to show step:', step);
     }
   }
 
