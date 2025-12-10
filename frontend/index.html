@@ -556,20 +556,50 @@
     }
 
     .color-swatch.selected {
+      position: relative;
       border-color: #ff6b35;
       border-width: 3px;
+    }
+
+    /* Double-ringed border effect for selected color */
+    .color-swatch.selected::before {
+      content: '';
+      position: absolute;
+      top: -5px;
+      left: -5px;
+      right: -5px;
+      bottom: -5px;
+      border: 2px solid #ff6b35;
+      border-radius: 50%;
+      pointer-events: none;
+      z-index: -1;
     }
 
     /* Custom color swatch with rainbow gradient */
     .custom-color-swatch {
       position: relative;
-      overflow: hidden;
+      overflow: visible; /* Changed to visible to allow double-ring border */
+    }
+    
+    /* Ensure custom color swatch double-ring works */
+    .custom-color-swatch.selected::before {
+      content: '';
+      position: absolute;
+      top: -4px;
+      left: -4px;
+      right: -4px;
+      bottom: -4px;
+      border: 2px solid #ff6b35;
+      border-radius: 50%;
+      pointer-events: none;
+      z-index: 1;
     }
 
     .custom-color-swatch .rainbow-gradient {
       width: 100%;
       height: 100%;
       border-radius: 50%;
+      overflow: hidden; /* Keep gradient clipped to circle */
       background: linear-gradient(
         135deg,
         #ff0000 0%,
@@ -939,11 +969,6 @@
               <input type="range" id="height-slider" min="30" max="100" value="50.8" step="0.1">
               <div class="value" id="height-value">50.8 mm</div>
             </div>
-            <div class="control-group">
-              <label>Corner Radius (mm)</label>
-              <input type="range" id="corner-radius-slider" min="0" max="10" value="5" step="0.5">
-              <div class="value" id="corner-radius-value">5.0 mm</div>
-            </div>
           </div>
 
           <!-- Thickness Section -->
@@ -966,6 +991,13 @@
                 <div class="thickness-option-value">48pt</div>
               </div>
             </div>
+          </div>
+
+          <!-- Corner Radius Section -->
+          <div class="control-group" style="margin-top: 32px;">
+            <label>Corner Radius (mm)</label>
+            <input type="range" id="corner-radius-slider" min="0" max="10" value="5" step="0.5">
+            <div class="value" id="corner-radius-value">5.0 mm</div>
           </div>
         </div>
 
@@ -992,13 +1024,33 @@
         <div class="config-section" data-step="color" style="display: none;">
           <h2 class="config-section-title">Base Color</h2>
           <div class="color-swatches">
-            <div class="color-swatch selected" style="background: #8B4513;" title="Tan Brown"></div>
+            <!-- Row 1 -->
+            <div class="color-swatch selected" style="background: #1A1A1A;" title="Charcoal Black"></div>
+            <div class="color-swatch" style="background: #5C2E3E;" title="Deep Plum"></div>
+            <div class="color-swatch" style="background: #D4C5B9;" title="Light Tan"></div>
+            <div class="color-swatch" style="background: #C85D2A;" title="Burnt Orange"></div>
+            <div class="color-swatch" style="background: #2D5016;" title="Forest Green"></div>
+            <div class="color-swatch" style="background: #8B0000;" title="Deep Red"></div>
+            <div class="color-swatch" style="background: #1E3A5F;" title="Navy Blue"></div>
+            
+            <!-- Row 2 -->
+            <div class="color-swatch" style="background: #4A5568;" title="Slate Blue"></div>
+            <div class="color-swatch" style="background: #1B4D3E;" title="Dark Teal"></div>
+            <div class="color-swatch" style="background: #8B0000;" title="Rich Red"></div>
+            <div class="color-swatch" style="background: #556B2F;" title="Olive Green"></div>
+            <div class="color-swatch" style="background: #C48793;" title="Dusty Pink"></div>
+            <div class="color-swatch" style="background: #F5DEB3;" title="Creamy Yellow"></div>
+            
+            <!-- Row 3 -->
+            <div class="color-swatch" style="background: #8B7D6B;" title="Taupe"></div>
+            <div class="color-swatch" style="background: #3D2817;" title="Chocolate Brown"></div>
+            <div class="color-swatch" style="background: #708090;" title="Slate Gray"></div>
+            <div class="color-swatch" style="background: #E9967A;" title="Muted Peach"></div>
+            <div class="color-swatch" style="background: #8B4513;" title="Tan Brown"></div>
             <div class="color-swatch" style="background: #2C2C2C;" title="Dark Grey"></div>
             <div class="color-swatch" style="background: #808080;" title="Grey"></div>
-            <div class="color-swatch" style="background: #3D2817;" title="Dark Brown"></div>
             <div class="color-swatch" style="background: #FF6B35;" title="Orange"></div>
-            <div class="color-swatch" style="background: #1E3A5F;" title="Dark Blue"></div>
-            <div class="color-swatch" style="background: #556B2F;" title="Olive Green"></div>
+            
             <!-- Custom Color Picker - styled as circular swatch with rainbow gradient -->
             <div class="color-swatch custom-color-swatch" id="custom-color-swatch" title="Custom Color">
               <input type="color" id="custom-color-picker" value="#8B4513" class="custom-color-input-hidden">

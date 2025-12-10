@@ -441,13 +441,12 @@ export class TestHarness {
       });
     }
 
+    // Corner radius slider (independent of custom size - always active)
     if (this.cornerRadiusSlider) {
       this.cornerRadiusSlider.addEventListener('input', () => {
-        if (this.isCustomSize) {
-          this.cornerRadius = parseFloat(this.cornerRadiusSlider!.value);
-          this.updateDimensions();
-          this.updateValueDisplay('corner-radius-value', `${this.cornerRadius} mm`);
-        }
+        this.cornerRadius = parseFloat(this.cornerRadiusSlider!.value);
+        this.updateDimensions();
+        this.updateValueDisplay('corner-radius-value', `${this.cornerRadius} mm`);
       });
     }
 
