@@ -134,7 +134,10 @@ export class UIController {
     stepButtons.forEach(btn => {
       btn.addEventListener('click', () => {
         const step = btn.getAttribute('data-step');
-        if (step) this.showStep(step);
+        if (step) {
+          console.log(`[Configurator] Step changed: ${step}`);
+          this.showStep(step);
+        }
       });
     });
 
@@ -147,6 +150,7 @@ export class UIController {
         
         const width = parseFloat(card.getAttribute('data-width') || '88.9');
         const height = parseFloat(card.getAttribute('data-height') || '50.8');
+        const sizeName = card.getAttribute('data-size') || 'unknown';
         
         this.width = width;
         this.height = height;
@@ -155,6 +159,7 @@ export class UIController {
         const customSizeControls = document.getElementById('custom-size-controls');
         if (customSizeControls) customSizeControls.style.display = 'none';
         
+        console.log(`[Configurator] Size selected: ${sizeName} (${width}mm x ${height}mm)`);
         this.updateDimensions();
       });
     });
@@ -168,6 +173,7 @@ export class UIController {
           const isVisible = customSizeControls.style.display !== 'none';
           customSizeControls.style.display = isVisible ? 'none' : 'block';
           this.isCustomSize = !isVisible;
+          console.log(`[Configurator] Custom size ${this.isCustomSize ? 'enabled' : 'disabled'}`);
         }
       });
     }
@@ -178,6 +184,7 @@ export class UIController {
       widthSlider.addEventListener('input', () => {
         if (this.isCustomSize) {
           this.width = parseFloat(widthSlider.value);
+          console.log(`[Configurator] Custom width changed: ${this.width}mm`);
           this.updateDimensions();
           this.updateValueDisplay('width-value', `${this.width} mm`);
         }
@@ -189,6 +196,7 @@ export class UIController {
       heightSlider.addEventListener('input', () => {
         if (this.isCustomSize) {
           this.height = parseFloat(heightSlider.value);
+          console.log(`[Configurator] Custom height changed: ${this.height}mm`);
           this.updateDimensions();
           this.updateValueDisplay('height-value', `${this.height} mm`);
         }
@@ -200,6 +208,7 @@ export class UIController {
     if (cornerRadiusSlider) {
       cornerRadiusSlider.addEventListener('input', () => {
         this.cornerRadius = parseFloat(cornerRadiusSlider.value);
+        console.log(`[Configurator] Corner radius changed: ${this.cornerRadius}mm`);
         this.updateDimensions();
         this.updateValueDisplay('corner-radius-value', `${this.cornerRadius} mm`);
       });
@@ -214,6 +223,7 @@ export class UIController {
         
         const thickness = parseFloat(option.getAttribute('data-thickness') || '5.6444');
         this.thickness = thickness / 10;
+        console.log(`[Configurator] Thickness changed: ${this.thickness}mm`);
         this.updateDimensions();
       });
     });
@@ -223,6 +233,7 @@ export class UIController {
     if (stockSelect) {
       stockSelect.addEventListener('change', () => {
         const stock = stockSelect.value as StockType;
+        console.log(`[Configurator] Stock selected: ${stock}`);
         this.configController.setStock(stock);
       });
     }
@@ -231,6 +242,7 @@ export class UIController {
     const foilToggle = document.getElementById('foil-toggle') as HTMLInputElement;
     if (foilToggle) {
       foilToggle.addEventListener('change', () => {
+        console.log(`[Configurator] Foil ${foilToggle.checked ? 'enabled' : 'disabled'}`);
         this.configController.setFoilEnabled(foilToggle.checked);
       });
     }
@@ -238,6 +250,7 @@ export class UIController {
     const uvToggle = document.getElementById('uv-toggle') as HTMLInputElement;
     if (uvToggle) {
       uvToggle.addEventListener('change', () => {
+        console.log(`[Configurator] UV gloss ${uvToggle.checked ? 'enabled' : 'disabled'}`);
         this.configController.setUVEnabled(uvToggle.checked);
       });
     }
@@ -245,6 +258,7 @@ export class UIController {
     const embossToggle = document.getElementById('emboss-toggle') as HTMLInputElement;
     if (embossToggle) {
       embossToggle.addEventListener('change', () => {
+        console.log(`[Configurator] Emboss ${embossToggle.checked ? 'enabled' : 'disabled'}`);
         this.configController.setEmbossEnabled(embossToggle.checked);
       });
     }
@@ -252,6 +266,7 @@ export class UIController {
     const diecutToggle = document.getElementById('diecut-toggle') as HTMLInputElement;
     if (diecutToggle) {
       diecutToggle.addEventListener('change', () => {
+        console.log(`[Configurator] Die-cut ${diecutToggle.checked ? 'enabled' : 'disabled'}`);
         this.configController.setDieCutEnabled(diecutToggle.checked);
       });
     }
@@ -268,6 +283,8 @@ export class UIController {
         if (styleAttr) {
           const match = styleAttr.match(/background:\s*(#[0-9A-Fa-f]{6}|#[0-9A-Fa-f]{3})/);
           if (match && match[1]) {
+            const colorName = swatchEl.getAttribute('title') || match[1];
+            console.log(`[Configurator] Base color selected: ${colorName} (${match[1]})`);
             MaterialPipeline.updateBaseColor(this.material, match[1]);
           }
         }
@@ -278,6 +295,7 @@ export class UIController {
     const customColorPicker = document.getElementById('custom-color-picker') as HTMLInputElement;
     if (customColorPicker) {
       customColorPicker.addEventListener('change', () => {
+        console.log(`[Configurator] Custom base color selected: ${customColorPicker.value}`);
         MaterialPipeline.updateBaseColor(this.material, customColorPicker.value);
         const customColorSwatch = document.getElementById('custom-color-swatch');
         if (customColorSwatch) {
@@ -300,6 +318,8 @@ export class UIController {
         if (styleAttr) {
           const match = styleAttr.match(/background:\s*(#[0-9A-Fa-f]{6}|#[0-9A-Fa-f]{3})/);
           if (match && match[1]) {
+            const colorName = swatchEl.getAttribute('title') || match[1];
+            console.log(`[Configurator] Edge color selected: ${colorName} (${match[1]})`);
             this.configController.setEdgeColor(match[1]);
           }
         }
@@ -310,6 +330,7 @@ export class UIController {
     const customEdgeColorPicker = document.getElementById('custom-edge-color-picker') as HTMLInputElement;
     if (customEdgeColorPicker) {
       customEdgeColorPicker.addEventListener('change', () => {
+        console.log(`[Configurator] Custom edge color selected: ${customEdgeColorPicker.value}`);
         this.configController.setEdgeColor(customEdgeColorPicker.value);
         const customEdgeColorSwatch = document.getElementById('custom-edge-color-swatch');
         if (customEdgeColorSwatch) {
