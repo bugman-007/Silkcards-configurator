@@ -800,30 +800,6 @@
       cursor: pointer;
     }
 
-    .upload-btn {
-      padding: 8px 16px;
-      background: #4a90e2;
-      color: white;
-      border: none;
-      border-radius: 6px;
-      cursor: pointer;
-      font-size: 13px;
-      font-weight: 500;
-      transition: background 0.2s;
-      margin-top: 8px;
-    }
-
-    .upload-btn:hover {
-      background: #357abd;
-    }
-
-    .filename-display {
-      display: block;
-      font-size: 12px;
-      color: #666;
-      margin-top: 4px;
-      font-style: italic;
-    }
 
     .preset-buttons {
       display: flex;
@@ -906,8 +882,8 @@
           </button>
         </div>
       </div>
-      <div id="canvas-container">
-        <canvas id="canvas"></canvas>
+  <div id="canvas-container">
+    <canvas id="canvas"></canvas>
       </div>
     </div>
 
@@ -923,7 +899,6 @@
         <h1 class="configurator-title">Design Your Card</h1>
         <div class="step-navigation">
           <button class="step-btn active" data-step="size">Card Size</button>
-          <button class="step-btn" data-step="material">Material</button>
           <button class="step-btn" data-step="color">Color</button>
           <button class="step-btn" data-step="layers">Print Layers</button>
           <button class="step-btn" data-step="finish">Finish</button>
@@ -959,13 +934,13 @@
 
           <!-- Custom Size Controls (Hidden by default) -->
           <div class="custom-size-controls" id="custom-size-controls" style="display: none;">
-            <div class="control-group">
-              <label>Width (mm)</label>
+      <div class="control-group">
+        <label>Width (mm)</label>
               <input type="range" id="width-slider" min="50" max="150" value="88.9" step="0.1">
               <div class="value" id="width-value">88.9 mm</div>
-            </div>
-            <div class="control-group">
-              <label>Height (mm)</label>
+      </div>
+      <div class="control-group">
+        <label>Height (mm)</label>
               <input type="range" id="height-slider" min="30" max="100" value="50.8" step="0.1">
               <div class="value" id="height-value">50.8 mm</div>
             </div>
@@ -990,33 +965,14 @@
               <div class="thickness-option" data-thickness="16.9333" data-thickness-pt="4.8">
                 <div class="thickness-option-value">48pt</div>
               </div>
-            </div>
-          </div>
+      </div>
+      </div>
 
           <!-- Corner Radius Section -->
           <div class="control-group" style="margin-top: 32px;">
-            <label>Corner Radius (mm)</label>
+        <label>Corner Radius (mm)</label>
             <input type="range" id="corner-radius-slider" min="0" max="10" value="5" step="0.5">
             <div class="value" id="corner-radius-value">5.0 mm</div>
-          </div>
-        </div>
-
-        <!-- Material Section -->
-        <div class="config-section" data-step="material" style="display: none;">
-          <h2 class="config-section-title">Material</h2>
-          <div class="option-grid">
-            <div class="option-item selected">
-              <div class="option-item-name">Standard</div>
-              <div class="option-item-price">£0.00</div>
-            </div>
-            <div class="option-item">
-              <div class="option-item-name">Premium</div>
-              <div class="option-item-price">+£5.00</div>
-            </div>
-            <div class="option-item">
-              <div class="option-item-name">Luxury</div>
-              <div class="option-item-price">+£15.00</div>
-            </div>
           </div>
         </div>
 
@@ -1025,7 +981,8 @@
           <h2 class="config-section-title">Base Color</h2>
           <div class="color-swatches">
             <!-- Row 1 -->
-            <div class="color-swatch selected" style="background: #1A1A1A;" title="Charcoal Black"></div>
+            <div class="color-swatch selected" style="background: #FFFFFF;" title="White"></div>
+            <div class="color-swatch" style="background: #1A1A1A;" title="Charcoal Black"></div>
             <div class="color-swatch" style="background: #5C2E3E;" title="Deep Plum"></div>
             <div class="color-swatch" style="background: #D4C5B9;" title="Light Tan"></div>
             <div class="color-swatch" style="background: #C85D2A;" title="Burnt Orange"></div>
@@ -1063,262 +1020,36 @@
         <div class="config-section" data-step="layers" style="display: none;">
           <h2 class="config-section-title">Print Layers</h2>
 
-          <!-- Foil Options -->
-          <div class="layer-option-group">
-            <div class="layer-option-header">
-              <label class="layer-toggle-label">
-                <input type="checkbox" id="foil-enabled" class="layer-checkbox">
-                <span>Foil</span>
-              </label>
-            </div>
-            <div class="layer-option-content" id="foil-options" style="display: none;">
-              <div class="control-group">
-                <label>Foil Color</label>
-                <div class="foil-color-grid">
-                  <div class="foil-color-option" data-color="gold" title="Gold">🟨</div>
-                  <div class="foil-color-option" data-color="silver" title="Silver">⬜</div>
-                  <div class="foil-color-option" data-color="rose_gold" title="Rose Gold">🌹</div>
-                  <div class="foil-color-option" data-color="copper" title="Copper">🟧</div>
-                  <div class="foil-color-option" data-color="red" title="Red">🔴</div>
-                  <div class="foil-color-option" data-color="pink" title="Pink">💗</div>
-                  <div class="foil-color-option" data-color="blue" title="Blue">🔵</div>
-                  <div class="foil-color-option" data-color="teal" title="Teal">🩵</div>
-                  <div class="foil-color-option" data-color="purple" title="Purple">🟣</div>
-                  <div class="foil-color-option" data-color="green" title="Green">🟢</div>
-                  <div class="foil-color-option" data-color="black" title="Black">⚫</div>
-                </div>
-              </div>
-              <div class="control-group">
-                <label>Foil Type</label>
-                <div class="option-grid">
-                  <div class="option-item" data-type="solid">Solid</div>
-                  <div class="option-item" data-type="pearl">Pearl</div>
-                  <div class="option-item" data-type="pattern">Pattern</div>
-                  <div class="option-item" data-type="holographic">Holographic</div>
-                </div>
-              </div>
-              <div class="control-group">
-                <label>Apply To</label>
-                <div class="side-checkboxes">
-                  <label><input type="checkbox" data-side="front" checked> Front</label>
-                  <label><input type="checkbox" data-side="mid"> Mid</label>
-                  <label><input type="checkbox" data-side="back"> Back</label>
-                </div>
-              </div>
-              <div class="control-group">
-                <label>Custom Foil Mask (PNG)</label>
-                <input type="file" id="foil-mask-upload" accept="image/png" style="display: none;">
-                <button class="upload-btn" onclick="document.getElementById('foil-mask-upload').click()">Upload Mask</button>
-                <span id="foil-mask-filename" class="filename-display"></span>
-              </div>
-            </div>
+          <!-- Foil Toggle (Simple ON/OFF) -->
+          <div class="control-group" style="margin-top: 16px;">
+            <label style="display: flex; align-items: center; gap: 12px; cursor: pointer;">
+              <input type="checkbox" id="foil-toggle" style="width: 20px; height: 20px; cursor: pointer;">
+              <span style="font-size: 15px; font-weight: 500;">Foil</span>
+            </label>
           </div>
 
-          <!-- UV Options -->
-          <div class="layer-option-group">
-            <div class="layer-option-header">
-              <label class="layer-toggle-label">
-                <input type="checkbox" id="uv-enabled" class="layer-checkbox">
-                <span>Spot UV</span>
-              </label>
-            </div>
-            <div class="layer-option-content" id="uv-options" style="display: none;">
-              <div class="control-group">
-                <label>UV Type</label>
-                <div class="option-grid">
-                  <div class="option-item" data-type="spot">Spot</div>
-                  <div class="option-item" data-type="raised">Raised</div>
-                  <div class="option-item" data-type="dusting">Dusting</div>
-                </div>
-              </div>
-              <div class="control-group">
-                <label>Apply To</label>
-                <div class="side-checkboxes">
-                  <label><input type="checkbox" data-side="front" checked> Front</label>
-                  <label><input type="checkbox" data-side="mid"> Mid</label>
-                  <label><input type="checkbox" data-side="back"> Back</label>
-                </div>
-              </div>
-              <div class="control-group">
-                <label>Custom UV Mask (PNG)</label>
-                <input type="file" id="uv-mask-upload" accept="image/png" style="display: none;">
-                <button class="upload-btn" onclick="document.getElementById('uv-mask-upload').click()">Upload Mask</button>
-                <span id="uv-mask-filename" class="filename-display"></span>
-              </div>
-            </div>
+          <!-- UV Gloss Toggle (Simple ON/OFF) -->
+          <div class="control-group" style="margin-top: 24px;">
+            <label style="display: flex; align-items: center; gap: 12px; cursor: pointer;">
+              <input type="checkbox" id="uv-toggle" style="width: 20px; height: 20px; cursor: pointer;">
+              <span style="font-size: 15px; font-weight: 500;">UV Gloss</span>
+            </label>
           </div>
 
-          <!-- Emboss/Deboss Options -->
-          <div class="layer-option-group">
-            <div class="layer-option-header">
-              <label class="layer-toggle-label">
-                <input type="checkbox" id="emboss-enabled" class="layer-checkbox">
-                <span>Emboss / Deboss</span>
-              </label>
-            </div>
-            <div class="layer-option-content" id="emboss-options" style="display: none;">
-              <div class="control-group">
-                <label>Mode</label>
-                <div class="option-grid">
-                  <div class="option-item" data-mode="emboss">Emboss</div>
-                  <div class="option-item" data-mode="deboss">Deboss</div>
-                </div>
-              </div>
-              <div class="control-group">
-                <label>Apply To</label>
-                <div class="side-checkboxes">
-                  <label><input type="checkbox" data-side="front" checked> Front</label>
-                  <label><input type="checkbox" data-side="mid"> Mid</label>
-                  <label><input type="checkbox" data-side="back"> Back</label>
-                </div>
-              </div>
-              <div class="control-group">
-                <label>Height Map (PNG)</label>
-                <input type="file" id="emboss-heightmap-upload" accept="image/png" style="display: none;">
-                <button class="upload-btn" onclick="document.getElementById('emboss-heightmap-upload').click()">Upload Height Map</button>
-                <span id="emboss-heightmap-filename" class="filename-display"></span>
-              </div>
-            </div>
+          <!-- Emboss Toggle (Simple ON/OFF) -->
+          <div class="control-group" style="margin-top: 24px;">
+            <label style="display: flex; align-items: center; gap: 12px; cursor: pointer;">
+              <input type="checkbox" id="emboss-toggle" style="width: 20px; height: 20px; cursor: pointer;">
+              <span style="font-size: 15px; font-weight: 500;">Emboss</span>
+            </label>
           </div>
 
-          <!-- Die Cut Options -->
-          <div class="layer-option-group">
-            <div class="layer-option-header">
-              <label class="layer-toggle-label">
-                <input type="checkbox" id="diecut-enabled" class="layer-checkbox">
-                <span>Die Cut</span>
-              </label>
-            </div>
-            <div class="layer-option-content" id="diecut-options" style="display: none;">
-              <div class="control-group">
-                <label>Die Cut Type</label>
-                <div class="option-grid">
-                  <div class="option-item" data-type="standard">Standard</div>
-                  <div class="option-item" data-type="laser">Laser</div>
-                  <div class="option-item" data-type="shape">Custom Shape</div>
-                </div>
-              </div>
-              <div class="control-group">
-                <label>Apply To</label>
-                <div class="side-checkboxes">
-                  <label><input type="checkbox" data-side="front" checked> Front</label>
-                  <label><input type="checkbox" data-side="mid"> Mid</label>
-                  <label><input type="checkbox" data-side="back"> Back</label>
-                </div>
-              </div>
-              <div class="control-group">
-                <label>Custom Die Cut Mask (PNG)</label>
-                <input type="file" id="diecut-mask-upload" accept="image/png" style="display: none;">
-                <button class="upload-btn" onclick="document.getElementById('diecut-mask-upload').click()">Upload Mask</button>
-                <span id="diecut-mask-filename" class="filename-display"></span>
-              </div>
-            </div>
-          </div>
-
-          <!-- Colored Edges -->
-          <div class="layer-option-group">
-            <div class="layer-option-header">
-              <label class="layer-toggle-label">
-                <input type="checkbox" id="edges-enabled" class="layer-checkbox">
-                <span>Colored Edges</span>
-              </label>
-            </div>
-            <div class="layer-option-content" id="edges-options" style="display: none;">
-              <div class="control-group">
-                <label>Number of Edges</label>
-                <div class="option-grid">
-                  <div class="option-item" data-count="0">None</div>
-                  <div class="option-item" data-count="1">1 Edge</div>
-                  <div class="option-item" data-count="2">2 Edges</div>
-                  <div class="option-item" data-count="3">3 Edges</div>
-                  <div class="option-item" data-count="4">4 Edges</div>
-                </div>
-              </div>
-              <div class="control-group">
-                <label>Ink Type</label>
-                <div class="option-grid">
-                  <div class="option-item" data-inktype="standard">Standard</div>
-                  <div class="option-item" data-inktype="metallic">Metallic</div>
-                  <div class="option-item" data-inktype="fluorescent">Fluorescent</div>
-                </div>
-              </div>
-              <div class="control-group">
-                <label>Edge Color</label>
-                <input type="color" id="edge-color-picker" value="#000000">
-              </div>
-              <div class="control-group">
-                <label>
-                  <input type="checkbox" id="foil-edges-checkbox"> Foil Edges
-                </label>
-              </div>
-            </div>
-          </div>
-
-          <!-- Extras -->
-          <div class="layer-option-group">
-            <div class="layer-option-header">
-              <h3 class="layer-subtitle">Extras</h3>
-            </div>
-            <div class="layer-option-content">
-              <div class="control-group">
-                <label>
-                  <input type="checkbox" id="pms-ink-checkbox"> PMS Ink
-                </label>
-              </div>
-              <div class="control-group">
-                <label>
-                  <input type="checkbox" id="perforate-checkbox"> Perforate
-                </label>
-              </div>
-              <div class="control-group">
-                <label>
-                  <input type="checkbox" id="variable-data-checkbox"> Variable Data
-                </label>
-                <input type="text" id="variable-data-text" placeholder="Enter text..." style="display: none; margin-top: 8px; width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px;">
-              </div>
-              <div class="control-group">
-                <label>
-                  <input type="checkbox" id="qr-code-checkbox"> QR Code
-                </label>
-              </div>
-            </div>
-          </div>
-
-          <!-- Artwork Upload -->
-          <div class="layer-option-group">
-            <div class="layer-option-header">
-              <h3 class="layer-subtitle">Artwork</h3>
-            </div>
-            <div class="layer-option-content">
-              <div class="control-group">
-                <label>Front Artwork</label>
-                <input type="file" id="front-artwork-upload" accept="image/*" style="display: none;">
-                <button class="upload-btn" onclick="document.getElementById('front-artwork-upload').click()">Upload Front</button>
-                <span id="front-artwork-filename" class="filename-display"></span>
-              </div>
-              <div class="control-group">
-                <label>Back Artwork</label>
-                <input type="file" id="back-artwork-upload" accept="image/*" style="display: none;">
-                <button class="upload-btn" onclick="document.getElementById('back-artwork-upload').click()">Upload Back</button>
-                <span id="back-artwork-filename" class="filename-display"></span>
-              </div>
-            </div>
-          </div>
-
-          <!-- Presets -->
-          <div class="layer-option-group">
-            <div class="layer-option-header">
-              <h3 class="layer-subtitle">Presets</h3>
-            </div>
-            <div class="layer-option-content">
-              <div class="preset-buttons">
-                <button class="preset-btn" data-preset="standard">Standard</button>
-                <button class="preset-btn" data-preset="foil">Foil</button>
-                <button class="preset-btn" data-preset="uv">UV</button>
-                <button class="preset-btn" data-preset="emboss">Emboss</button>
-                <button class="preset-btn" data-preset="premium">Premium</button>
-              </div>
-            </div>
+          <!-- Die-Cut Toggle (Simple ON/OFF) -->
+          <div class="control-group" style="margin-top: 24px;">
+            <label style="display: flex; align-items: center; gap: 12px; cursor: pointer;">
+              <input type="checkbox" id="diecut-toggle" style="width: 20px; height: 20px; cursor: pointer;">
+              <span style="font-size: 15px; font-weight: 500;">Die-Cut</span>
+            </label>
           </div>
         </div>
 
@@ -1335,7 +1066,7 @@
             <div class="option-item">
               <div class="option-item-name">Textured</div>
             </div>
-          </div>
+      </div>
         </div>
       </div>
 
@@ -1413,6 +1144,6 @@
     })();
   </script>
 
-  <script type="module" src="/src/main.ts"></script>
+    <script type="module" src="/src/core/main.ts"></script>
 </body>
 </html>

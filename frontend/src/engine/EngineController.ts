@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
-import { ResourceManager } from '../resources/ResourceManager.js';
-import { LightingController, type LightingPreset } from './LightingController.js';
+import { ResourceManager } from '../core/ResourceManager.js';
+import { LightingController } from './LightingController.js';
 
 /**
  * Engine Controller
@@ -20,31 +20,29 @@ export class EngineController {
   // Lighting Controller - manages lighting presets
   private lightingController: LightingController | null = null;
   
-  // Materials that need lighting updates (registered by TestHarness)
+  // Materials that need lighting updates
   private materialsToUpdate: Set<THREE.ShaderMaterial> = new Set();
 
-  // Resize handler (stored for cleanup)
+  // Resize handler
   private resizeHandler: () => void;
 
   /**
    * Constructor with canvas selector
    */
   constructor(canvasSelector: string) {
-    // Find canvas element
     const canvasElement = document.querySelector(canvasSelector) as HTMLCanvasElement;
     if (!canvasElement) {
       throw new Error(`Canvas element not found: ${canvasSelector}`);
     }
     this.canvas = canvasElement;
 
-    // Create renderer with proper settings
+    // Create renderer
     this.renderer = new THREE.WebGLRenderer({
       canvas: this.canvas,
       antialias: true,
       powerPreference: 'high-performance'
     });
 
-    // Configure renderer
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
     this.renderer.toneMappingExposure = 1.0;
@@ -62,24 +60,22 @@ export class EngineController {
     // Set up resize handler
     this.resizeHandler = () => this.handleResize();
     window.addEventListener('resize', this.resizeHandler);
-
-    // Set initial size
     this.handleResize();
 
-    // Set up OrbitControls (dev only)
+    // Set up OrbitControls
     this.setupControls();
 
-    // Set up lighting controller (manages lighting presets)
+    // Set up lighting controller
     this.lightingController = new LightingController(this.scene);
 
-    // Initialize resource manager and load HDRI environment (async, non-blocking)
+    // Initialize resources
     this.initializeResources();
 
     this.isInitialized = true;
   }
 
   /**
-   * Initialize resources asynchronously (non-blocking)
+   * Initialize resources asynchronously
    */
   private async initializeResources(): Promise<void> {
     await ResourceManager.init();
@@ -87,7 +83,7 @@ export class EngineController {
   }
 
   /**
-   * Set up OrbitControls (dev only)
+   * Set up OrbitControls
    */
   private setupControls(): void {
     this.controls = new OrbitControls(this.camera, this.canvas);
@@ -99,43 +95,22 @@ export class EngineController {
   }
 
   /**
-   * Set lighting preset
-   * Only adjusts light intensities - colors, positions, and HDR remain unchanged
-   * 
-   * @param presetName - Name of the preset to apply
-   */
-  setLightingPreset(presetName: LightingPreset): void {
-    if (this.lightingController) {
-      this.lightingController.setLightingPreset(presetName);
-    }
-  }
-
-  /**
-   * Get current lighting preset
-   */
-  getLightingPreset(): LightingPreset | null {
-    return this.lightingController?.getCurrentPreset() || null;
-  }
-
-  /**
-   * Get lighting controller (for advanced use)
+   * Get lighting controller
    */
   getLightingController(): LightingController | null {
     return this.lightingController;
   }
 
   /**
-   * Load HDRI environment via ResourceManager
+   * Load HDRI environment
    */
   private async loadHDRI(): Promise<void> {
     try {
       const hdrTexture = await ResourceManager.loadHDR('/hdr/environment.hdr');
-      this.scene.environment = hdrTexture;
-      this.scene.background = hdrTexture;
+    this.scene.environment = hdrTexture;
+    this.scene.background = hdrTexture;
     } catch (error) {
-      // Fallback to solid color background if HDR not found
-      console.warn('HDR environment not found, using default background');
-      this.scene.background = new THREE.Color(0x1a1a1a);
+      console.error('Failed to load HDR environment:', error);
     }
   }
 
@@ -147,7 +122,7 @@ export class EngineController {
   }
 
   /**
-   * Register a material to receive lighting updates each frame
+   * Register a material to receive lighting updates
    */
   registerMaterialForLighting(material: THREE.ShaderMaterial): void {
     this.materialsToUpdate.add(material);
@@ -165,7 +140,7 @@ export class EngineController {
    */
   start(): void {
     if (this.animationId !== null) {
-      return; // Already running
+      return;
     }
 
     const animate = () => {
@@ -224,7 +199,6 @@ export class EngineController {
 
   /**
    * Get lighting information for shader materials
-   * Returns the primary directional light (key light) information
    */
   getLightingInfo(): {
     direction: THREE.Vector3;
@@ -232,47 +206,33 @@ export class EngineController {
     ambient: THREE.Color;
     cameraPosition: THREE.Vector3;
   } {
-    // Get key light direction (normalized world direction)
     let lightDirection = new THREE.Vector3(0, 0, 1);
     let lightColor = new THREE.Color(1, 1, 1);
     
     const keyLight = this.lightingController?.getKeyLight();
     if (keyLight) {
-      // For DirectionalLight, the direction is from the light's position toward the origin
-      // Get world position of the light
       const worldPos = new THREE.Vector3();
       keyLight.getWorldPosition(worldPos);
-      
-      // Calculate direction from light position to origin (where the card is)
-      // DirectionalLight illuminates objects as if light rays are parallel
-      // So we normalize the vector from origin to light position
       lightDirection = worldPos.normalize();
-      
-      // Get light color and intensity
       lightColor = keyLight.color.clone().multiplyScalar(keyLight.intensity);
     }
 
-    // Get ambient light color
     let ambientColor = new THREE.Color(0.25, 0.25, 0.25);
     const ambientLight = this.lightingController?.getAmbientLight();
     if (ambientLight) {
       ambientColor = ambientLight.color.clone().multiplyScalar(ambientLight.intensity);
     }
 
-    // Get camera position in world space
-    const cameraPosition = new THREE.Vector3();
-    this.camera.getWorldPosition(cameraPosition);
-
     return {
       direction: lightDirection,
       color: lightColor,
       ambient: ambientColor,
-      cameraPosition: cameraPosition
+      cameraPosition: this.camera.position.clone()
     };
   }
 
   /**
-   * Public resize method (can be called externally, e.g., for fullscreen)
+   * Public resize method
    */
   resize(): void {
     this.handleResize();
@@ -289,35 +249,31 @@ export class EngineController {
     const width = this.canvas.clientWidth;
     const height = this.canvas.clientHeight;
 
-    // Update camera aspect ratio
     this.camera.aspect = width / height || 1;
     this.camera.updateProjectionMatrix();
-
-    // Update renderer size
     this.renderer.setSize(width, height, false);
   }
 
   /**
-   * Get the Three.js scene (for advanced use cases)
+   * Get the Three.js scene
    */
   getScene(): THREE.Scene {
     return this.scene;
   }
 
   /**
-   * Get the Three.js camera (for advanced use cases)
+   * Get the Three.js camera
    */
   getCamera(): THREE.PerspectiveCamera {
     return this.camera;
   }
 
   /**
-   * Get the Three.js renderer (for advanced use cases)
+   * Get the Three.js renderer
    */
   getRenderer(): THREE.WebGLRenderer {
     return this.renderer;
   }
-
 
   /**
    * Dispose of all resources
@@ -325,25 +281,18 @@ export class EngineController {
   dispose(): void {
     this.stop();
 
-    // Remove controls
     if (this.controls) {
       this.controls.dispose();
       this.controls = null;
     }
 
-    // Dispose lighting controller
     if (this.lightingController) {
       this.lightingController.dispose();
       this.lightingController = null;
     }
 
-    // Dispose resource manager
     ResourceManager.dispose();
-
-    // Dispose renderer
     this.renderer.dispose();
-
-    // Remove event listeners
     window.removeEventListener('resize', this.resizeHandler);
   }
 }

@@ -5,33 +5,29 @@ import { TextureLoader } from 'three';
 /**
  * Resource Manager
  * Centralized GPU asset loading
- * All methods are static for global access
  */
 export class ResourceManager {
   private static hdrLoader: RGBELoader | null = null;
   private static textureLoader: TextureLoader | null = null;
   private static loadedTextures: Map<string, THREE.Texture> = new Map();
+  private static maskTextures: Map<string, THREE.Texture> = new Map();
   private static isInitialized: boolean = false;
 
   /**
    * Initialize the resource manager
-   * Must be called before loading any assets
    */
   static async init(): Promise<void> {
     if (this.isInitialized) {
       return;
     }
 
-    // Initialize loaders
     this.hdrLoader = new RGBELoader();
     this.textureLoader = new TextureLoader();
-
     this.isInitialized = true;
   }
 
   /**
-   * Load HDR environment map using RGBELoader
-   * Returns Promise<THREE.Texture>
+   * Load HDR environment map
    */
   static async loadHDR(path: string): Promise<THREE.Texture> {
     if (!this.isInitialized) {
@@ -59,15 +55,13 @@ export class ResourceManager {
   }
 
   /**
-   * Load texture using TextureLoader
-   * Returns Promise<THREE.Texture>
+   * Load texture
    */
   static async loadTexture(path: string): Promise<THREE.Texture> {
     if (!this.isInitialized) {
       await this.init();
     }
 
-    // Check cache
     if (this.loadedTextures.has(path)) {
       return this.loadedTextures.get(path)!;
     }
@@ -80,7 +74,7 @@ export class ResourceManager {
       this.textureLoader!.load(
         path,
         (texture) => {
-          texture.flipY = false; // For masks and artwork
+          texture.flipY = false;
           texture.colorSpace = THREE.SRGBColorSpace;
           this.loadedTextures.set(path, texture);
           resolve(texture);
@@ -95,52 +89,57 @@ export class ResourceManager {
   }
 
   /**
-   * Load mask texture using TextureLoader
-   * Returns Promise<THREE.Texture>
+   * Load mask texture
    */
   static async loadMask(path: string): Promise<THREE.Texture> {
     return this.loadTexture(path);
   }
 
   /**
-   * Load texture from URL (supports both file:// and http:// URLs)
-   * Handles object URLs created from file uploads
-   * Returns Promise<THREE.Texture>
+   * Load finish mask textures (foil, uv, emboss)
+   * Must be called before material initialization
    */
-  static async loadTextureFromURL(url: string): Promise<THREE.Texture> {
-    // Check cache first (use URL as key)
-    if (this.loadedTextures.has(url)) {
-      return this.loadedTextures.get(url)!;
-    }
-
+  static async loadFinishMasks(): Promise<void> {
     if (!this.isInitialized) {
       await this.init();
     }
 
-    if (!this.textureLoader) {
-      throw new Error('ResourceManager not initialized');
-    }
+    const maskPaths = {
+      foil: '/masks/foil.png',
+      uv: '/masks/uv.png',
+      emboss: '/masks/emboss.png'
+    };
 
-    return new Promise((resolve, reject) => {
-      this.textureLoader!.load(
-        url,
-        (texture) => {
-          texture.flipY = false; // For masks and artwork
-          texture.colorSpace = THREE.SRGBColorSpace;
-          this.loadedTextures.set(url, texture);
-          resolve(texture);
-        },
-        undefined,
-        (error) => {
-          console.error(`Failed to load texture from URL ${url}:`, error);
-          reject(error);
+    // Load all masks in parallel
+    const loadPromises = Object.entries(maskPaths).map(async ([key, path]) => {
+      try {
+        const texture = await this.loadMask(path);
+        // UV and emboss masks need to be flipped vertically
+        if (key === 'uv' || key === 'emboss') {
+          texture.flipY = true;
         }
-      );
+        this.maskTextures.set(key, texture);
+        console.log(`Loaded ${key} mask: ${path}`);
+      } catch (error) {
+        console.warn(`Failed to load ${key} mask, using placeholder:`, error);
+        // Create black placeholder (no effect)
+        const placeholder = this.createPlaceholderTexture(512, 512, new THREE.Color(0, 0, 0));
+        this.maskTextures.set(key, placeholder);
+      }
     });
+
+    await Promise.all(loadPromises);
   }
 
   /**
-   * Get a cached texture if it exists, otherwise return null
+   * Get mask texture by name (foil, uv, emboss)
+   */
+  static getMaskTexture(name: 'foil' | 'uv' | 'emboss'): THREE.Texture | null {
+    return this.maskTextures.get(name) || null;
+  }
+
+  /**
+   * Get a cached texture if it exists
    */
   static getCachedTexture(url: string): THREE.Texture | null {
     return this.loadedTextures.get(url) || null;
@@ -158,7 +157,7 @@ export class ResourceManager {
   }
 
   /**
-   * Create a placeholder texture (for testing when files don't exist)
+   * Create a placeholder texture
    */
   static createPlaceholderTexture(
     width: number = 512,
@@ -179,18 +178,17 @@ export class ResourceManager {
   }
 
   /**
-   * Dispose of all resources and free GPU memory
+   * Dispose of all resources
    */
   static dispose(): void {
-    // Dispose all textures
     for (const texture of this.loadedTextures.values()) {
       texture.dispose();
     }
     this.loadedTextures.clear();
 
-    // Reset loaders
     this.hdrLoader = null;
     this.textureLoader = null;
     this.isInitialized = false;
   }
 }
+

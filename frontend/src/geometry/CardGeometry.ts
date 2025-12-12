@@ -66,41 +66,47 @@ export class CardGeometry {
     const positions: number[] = [];
     const normals: number[] = [];
     const uvs: number[] = [];
+    const faceTypes: number[] = []; // 0 = front, 1 = back, 2 = edge
     const indices: number[] = [];
 
     const halfWidth = this.width / 2;
     const halfHeight = this.height / 2;
     const halfThickness = this.thickness / 2;
 
-    // Build front face (facing +Z)
+    // Build front face (facing +Z) - faceType = 0
     this.buildFace(
       positions,
       normals,
       uvs,
+      faceTypes,
       indices,
       halfWidth,
       halfHeight,
       halfThickness,
-      [0, 0, 1] // Normal pointing +Z
+      [0, 0, 1], // Normal pointing +Z
+      0.0 // Front face
     );
 
-    // Build back face (facing -Z)
+    // Build back face (facing -Z) - faceType = 1
     this.buildFace(
       positions,
       normals,
       uvs,
+      faceTypes,
       indices,
       halfWidth,
       halfHeight,
       -halfThickness,
-      [0, 0, -1] // Normal pointing -Z
+      [0, 0, -1], // Normal pointing -Z
+      1.0 // Back face
     );
 
-    // Build side faces (thickness extrusion)
+    // Build side faces (thickness extrusion) - faceType = 2
     this.buildSideFaces(
       positions,
       normals,
       uvs,
+      faceTypes,
       indices,
       halfWidth,
       halfHeight,
@@ -124,12 +130,14 @@ export class CardGeometry {
     const positionAttr = this._geometry.getAttribute('position') as THREE.BufferAttribute | null;
     const normalAttr = this._geometry.getAttribute('normal') as THREE.BufferAttribute | null;
     const uvAttr = this._geometry.getAttribute('uv') as THREE.BufferAttribute | null;
+    const faceTypeAttr = this._geometry.getAttribute('faceType') as THREE.BufferAttribute | null;
     const existingIndex = this._geometry.getIndex();
 
     // Create typed arrays
     const positionArray = new Float32Array(positions);
     const normalArray = new Float32Array(normals);
     const uvArray = new Float32Array(uvs);
+    const faceTypeArray = new Float32Array(faceTypes);
 
     // Determine if we need Uint16Array or Uint32Array for indices
     const maxIndexValue = indexCount > 0 ? Math.max(...indices) : 0;
@@ -144,8 +152,8 @@ export class CardGeometry {
       (positionAttr.array as Float32Array).set(positionArray);
       positionAttr.needsUpdate = true;
     } else {
-      // Different count: dispose old and create new
-      if (positionAttr) positionAttr.dispose();
+      // Different count: delete old and create new (setAttribute automatically disposes old)
+      if (positionAttr) this._geometry.deleteAttribute('position');
       const newAttr = new THREE.Float32BufferAttribute(positionArray, 3);
       this._geometry.setAttribute('position', newAttr);
     }
@@ -155,7 +163,7 @@ export class CardGeometry {
       (normalAttr.array as Float32Array).set(normalArray);
       normalAttr.needsUpdate = true;
     } else {
-      if (normalAttr) normalAttr.dispose();
+      if (normalAttr) this._geometry.deleteAttribute('normal');
       const newAttr = new THREE.Float32BufferAttribute(normalArray, 3);
       this._geometry.setAttribute('normal', newAttr);
     }
@@ -165,26 +173,32 @@ export class CardGeometry {
       (uvAttr.array as Float32Array).set(uvArray);
       uvAttr.needsUpdate = true;
     } else {
-      if (uvAttr) uvAttr.dispose();
+      if (uvAttr) this._geometry.deleteAttribute('uv');
       const newAttr = new THREE.Float32BufferAttribute(uvArray, 2);
       this._geometry.setAttribute('uv', newAttr);
     }
 
+    // Update or recreate faceType attribute
+    if (faceTypeAttr && faceTypeAttr.count === vertexCount) {
+      (faceTypeAttr.array as Float32Array).set(faceTypeArray);
+      faceTypeAttr.needsUpdate = true;
+    } else {
+      if (faceTypeAttr) this._geometry.deleteAttribute('faceType');
+      const newAttr = new THREE.Float32BufferAttribute(faceTypeArray, 1);
+      this._geometry.setAttribute('faceType', newAttr);
+    }
+
     // Update or recreate index buffer
-    // CRITICAL: Index buffer MUST match vertex count or GPU will throw GL_INVALID_OPERATION
     if (existingIndex) {
       const existingIndexCount = existingIndex.count;
       const existingArrayType = existingIndex.array instanceof Uint32Array ? 'uint32' : 'uint16';
       const newArrayType = indexArray instanceof Uint32Array ? 'uint32' : 'uint16';
       
-      // Check if we can update in place (same count AND same type)
       if (existingIndexCount === indexCount && existingArrayType === newArrayType) {
-        // Same count and type: update in place
         (existingIndex.array as Uint16Array | Uint32Array).set(indexArray);
         existingIndex.needsUpdate = true;
       } else {
-        // Different count or type: dispose old and create new
-        existingIndex.dispose();
+        // setIndex automatically disposes old index
         this._geometry.setIndex(new THREE.BufferAttribute(indexArray, 1));
         const newIndex = this._geometry.getIndex();
         if (newIndex) {
@@ -192,7 +206,6 @@ export class CardGeometry {
         }
       }
     } else {
-      // No existing index: create new
       this._geometry.setIndex(new THREE.BufferAttribute(indexArray, 1));
       const newIndex = this._geometry.getIndex();
       if (newIndex) {
@@ -203,14 +216,9 @@ export class CardGeometry {
     // Set drawRange to ensure we only draw valid geometry
     this._geometry.setDrawRange(0, indexCount);
     
-    // Compute bounding volumes (required after geometry changes)
+    // Compute bounding volumes
     this._geometry.computeBoundingBox();
     this._geometry.computeBoundingSphere();
-
-    // Debug log for verification
-    const finalVertexCount = this._geometry.getAttribute('position').count;
-    const finalIndexCount = this._geometry.getIndex()?.count || 0;
-    console.log(`CardGeometry rebuilt: ${finalVertexCount} vertices, ${finalIndexCount} indices (W:${this.width.toFixed(1)}, H:${this.height.toFixed(1)}, T:${this.thickness.toFixed(3)})`);
   }
 
   /**
@@ -221,11 +229,13 @@ export class CardGeometry {
     positions: number[],
     normals: number[],
     uvs: number[],
+    faceTypes: number[],
     indices: number[],
     halfWidth: number,
     halfHeight: number,
     z: number,
-    normal: [number, number, number]
+    normal: [number, number, number],
+    faceType: number
   ): void {
     const startIndex = positions.length / 3;
     const effectiveWidth = this.width;
@@ -239,12 +249,8 @@ export class CardGeometry {
       const angle = (Math.PI / 2) * (i / this.cornerSegments);
       const x = halfWidth - this.cornerRadius + this.cornerRadius * Math.cos(angle);
       const y = halfHeight - this.cornerRadius + this.cornerRadius * Math.sin(angle);
-      
-      // UV mapping: 0-1 range, scaled to card dimensions
-      // This ensures artwork always maps correctly regardless of card size
       const u = (x + halfWidth) / effectiveWidth;
       const v = (y + halfHeight) / effectiveHeight;
-      
       outlinePoints.push({ x, y, u, v });
     }
 
@@ -253,10 +259,8 @@ export class CardGeometry {
       const angle = (Math.PI / 2) * (i / this.cornerSegments) + Math.PI / 2;
       const x = -halfWidth + this.cornerRadius + this.cornerRadius * Math.cos(angle);
       const y = halfHeight - this.cornerRadius + this.cornerRadius * Math.sin(angle);
-      
       const u = (x + halfWidth) / effectiveWidth;
       const v = (y + halfHeight) / effectiveHeight;
-      
       outlinePoints.push({ x, y, u, v });
     }
 
@@ -265,10 +269,8 @@ export class CardGeometry {
       const angle = (Math.PI / 2) * (i / this.cornerSegments) + Math.PI;
       const x = -halfWidth + this.cornerRadius + this.cornerRadius * Math.cos(angle);
       const y = -halfHeight + this.cornerRadius + this.cornerRadius * Math.sin(angle);
-      
       const u = (x + halfWidth) / effectiveWidth;
       const v = (y + halfHeight) / effectiveHeight;
-      
       outlinePoints.push({ x, y, u, v });
     }
 
@@ -277,44 +279,46 @@ export class CardGeometry {
       const angle = (Math.PI / 2) * (i / this.cornerSegments) + (3 * Math.PI) / 2;
       const x = halfWidth - this.cornerRadius + this.cornerRadius * Math.cos(angle);
       const y = -halfHeight + this.cornerRadius + this.cornerRadius * Math.sin(angle);
-      
       const u = (x + halfWidth) / effectiveWidth;
       const v = (y + halfHeight) / effectiveHeight;
-      
       outlinePoints.push({ x, y, u, v });
     }
 
     // Add center vertex
     positions.push(0, 0, z);
     normals.push(...normal);
-    uvs.push(0.5, 0.5); // Center UV
+    uvs.push(0.5, 0.5);
+    faceTypes.push(faceType);
 
     // Add outline vertices
     for (const point of outlinePoints) {
       positions.push(point.x, point.y, z);
       normals.push(...normal);
       uvs.push(point.u, point.v);
+      faceTypes.push(faceType);
     }
 
-    // Create triangles from center to outline (fan triangulation)
+    // Create triangles from center to outline
     const numOutlineVerts = outlinePoints.length;
     for (let i = 0; i < numOutlineVerts; i++) {
       const next = (i + 1) % numOutlineVerts;
       indices.push(
-        startIndex, // Center vertex
-        startIndex + 1 + i, // Current outline vertex
-        startIndex + 1 + next // Next outline vertex
+        startIndex,
+        startIndex + 1 + i,
+        startIndex + 1 + next
       );
     }
   }
 
   /**
    * Build side faces (thickness extrusion)
+   * Edge faces use UVs (-1, -1) to prevent mask sampling
    */
   private buildSideFaces(
     positions: number[],
     normals: number[],
     uvs: number[],
+    faceTypes: number[],
     indices: number[],
     halfWidth: number,
     halfHeight: number,
@@ -363,7 +367,7 @@ export class CardGeometry {
     }
 
     const numPoints = frontOutline.length;
-    const perimeter = this.calculatePerimeter(halfWidth, halfHeight);
+    const perimeter = this.calculatePerimeter();
 
     // Add vertices for side faces
     for (let i = 0; i < numPoints; i++) {
@@ -371,7 +375,7 @@ export class CardGeometry {
       const back = backOutline[i];
       const next = (i + 1) % numPoints;
 
-      // Calculate side normal (perpendicular to edge, pointing outward)
+      // Calculate side normal
       const dx = frontOutline[next].x - frontOutline[i].x;
       const dy = frontOutline[next].y - frontOutline[i].y;
       const len = Math.sqrt(dx * dx + dy * dy);
@@ -383,32 +387,29 @@ export class CardGeometry {
       const vFront = 0;
       const vBack = 1;
 
-      // Front edge vertex
+      // Front edge vertex (edge face - UVs set to -1 to prevent mask sampling)
       positions.push(front.x, front.y, halfThickness);
       normals.push(nx, ny, 0);
-      uvs.push(u, vFront);
+      uvs.push(-1.0, -1.0); // Out-of-range UVs for edges
+      faceTypes.push(2.0); // Edge face type
 
-      // Back edge vertex
+      // Back edge vertex (edge face - UVs set to -1 to prevent mask sampling)
       positions.push(back.x, back.y, -halfThickness);
       normals.push(nx, ny, 0);
-      uvs.push(u, vBack);
+      uvs.push(-1.0, -1.0); // Out-of-range UVs for edges
+      faceTypes.push(2.0); // Edge face type
     }
 
-    // Create side face quads (two triangles per quad)
-    // Each point has 2 vertices: front (even) and back (odd)
+    // Create side face quads
     for (let i = 0; i < numPoints; i++) {
       const next = (i + 1) % numPoints;
       
-      // Calculate correct vertex indices for current and next points
-      const iFront = startIndex + i * 2;      // Current point, front edge
-      const iBack = startIndex + i * 2 + 1;   // Current point, back edge
-      const nextFront = startIndex + next * 2; // Next point, front edge
-      const nextBack = startIndex + next * 2 + 1; // Next point, back edge
+      const iFront = startIndex + i * 2;
+      const iBack = startIndex + i * 2 + 1;
+      const nextFront = startIndex + next * 2;
+      const nextBack = startIndex + next * 2 + 1;
 
-      // Quad as two triangles (winding order: front face outward)
-      // Triangle 1: iFront -> iBack -> nextFront
       indices.push(iFront, iBack, nextFront);
-      // Triangle 2: iBack -> nextBack -> nextFront
       indices.push(iBack, nextBack, nextFront);
     }
   }
@@ -416,9 +417,9 @@ export class CardGeometry {
   /**
    * Calculate total perimeter of the card outline
    */
-  private calculatePerimeter(halfWidth: number, halfHeight: number): number {
+  private calculatePerimeter(): number {
     const straightSides = 2 * (this.width - 2 * this.cornerRadius) + 2 * (this.height - 2 * this.cornerRadius);
-    const cornerArcs = 2 * Math.PI * this.cornerRadius; // Full circle for all 4 corners
+    const cornerArcs = 2 * Math.PI * this.cornerRadius;
     return straightSides + cornerArcs;
   }
 
@@ -444,3 +445,4 @@ export class CardGeometry {
     }
   }
 }
+
