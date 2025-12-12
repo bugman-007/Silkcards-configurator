@@ -107,7 +107,8 @@ export class ResourceManager {
     const maskPaths = {
       foil: '/masks/foil.png',
       uv: '/masks/uv.png',
-      emboss: '/masks/emboss.png'
+      emboss: '/masks/emboss.png',
+      diecut: '/masks/die.png'
     };
 
     // Load all masks in parallel
@@ -118,6 +119,7 @@ export class ResourceManager {
         if (key === 'uv' || key === 'emboss') {
           texture.flipY = true;
         }
+        // Die-cut mask will be flipped horizontally in the shader via UV coordinates
         this.maskTextures.set(key, texture);
         console.log(`Loaded ${key} mask: ${path}`);
       } catch (error) {
@@ -132,9 +134,9 @@ export class ResourceManager {
   }
 
   /**
-   * Get mask texture by name (foil, uv, emboss)
+   * Get mask texture by name (foil, uv, emboss, diecut)
    */
-  static getMaskTexture(name: 'foil' | 'uv' | 'emboss'): THREE.Texture | null {
+  static getMaskTexture(name: 'foil' | 'uv' | 'emboss' | 'diecut'): THREE.Texture | null {
     return this.maskTextures.get(name) || null;
   }
 

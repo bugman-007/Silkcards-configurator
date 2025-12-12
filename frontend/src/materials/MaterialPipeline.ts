@@ -19,6 +19,7 @@ export class MaterialPipeline {
     foilMask?: THREE.Texture;
     uvMask?: THREE.Texture;
     embossMask?: THREE.Texture;
+    dieCutMask?: THREE.Texture;
   }): THREE.ShaderMaterial {
     // Create placeholder artwork if not provided
     const artwork = options.artwork || MaterialPipeline.createPlaceholderTexture(512, 512, new THREE.Color(0.8, 0.8, 0.9));
@@ -27,6 +28,7 @@ export class MaterialPipeline {
     const foilMask = options.foilMask || MaterialPipeline.createPlaceholderTexture(512, 512, new THREE.Color(0, 0, 0));
     const uvMask = options.uvMask || MaterialPipeline.createPlaceholderTexture(512, 512, new THREE.Color(0, 0, 0));
     const embossMask = options.embossMask || MaterialPipeline.createPlaceholderTexture(512, 512, new THREE.Color(0, 0, 0));
+    const dieCutMask = options.dieCutMask || MaterialPipeline.createPlaceholderTexture(512, 512, new THREE.Color(0, 0, 0));
 
     // Create shader material
     const material = new THREE.ShaderMaterial({
@@ -43,6 +45,7 @@ export class MaterialPipeline {
         foilMask: { value: foilMask },
         uvMask: { value: uvMask },
         embossMask: { value: embossMask },
+        dieCutMask: { value: dieCutMask },
 
         // Finish toggles (boolean flags)
         foilEnabled: { value: false },
@@ -50,6 +53,7 @@ export class MaterialPipeline {
         embossEnabled: { value: false },
         embossStrength: { value: 0.12 },
         embossMode: { value: 1.0 }, // +1.0 for emboss (raised), -1.0 for deboss (indented)
+        dieCutEnabled: { value: false },
 
         // Lighting uniforms
         uLightDirection: { value: new THREE.Vector3(0, 0, 1) },
@@ -183,13 +187,16 @@ export class MaterialPipeline {
   }
 
   /**
-   * Update die-cut effect (placeholder - geometry level, not shader)
+   * Update die-cut effect (mask-driven fragment discard)
    */
   static updateDieCut(
     material: THREE.ShaderMaterial,
     enabled: boolean
   ): void {
-    // Die-cut is handled at geometry level, not shader level
+    if (material.uniforms.dieCutEnabled) {
+      material.uniforms.dieCutEnabled.value = enabled;
+    }
+    material.needsUpdate = true;
   }
 }
 

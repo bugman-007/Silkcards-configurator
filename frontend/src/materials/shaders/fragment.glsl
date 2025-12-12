@@ -15,6 +15,7 @@ uniform vec3 uBaseColor;
 uniform sampler2D foilMask;
 uniform sampler2D uvMask;
 uniform sampler2D embossMask;
+uniform sampler2D dieCutMask;
 
 // Finish toggles (boolean flags)
 uniform bool foilEnabled;
@@ -22,6 +23,7 @@ uniform bool uvEnabled;
 uniform bool embossEnabled;
 uniform float embossStrength;
 uniform float embossMode; // +1.0 for emboss (raised), -1.0 for deboss (indented)
+uniform bool dieCutEnabled;
 
 // Lighting uniforms
 uniform vec3 uLightDirection;
@@ -30,6 +32,19 @@ uniform vec3 uAmbientColor;
 uniform vec3 uCameraPosition;
 
 void main() {
+    // --- Die-cut discard ---
+    // Must execute before any color accumulation
+    if (dieCutEnabled) {
+        // Flip UV horizontally: (1.0 - vUv.x, vUv.y)
+        vec2 dieCutUv = vec2(1.0 - vUv.x, vUv.y);
+        float cutVal = texture2D(dieCutMask, dieCutUv).r;
+        
+        // White (1.0) = hole → discard fragment
+        if (cutVal > 0.5) {
+            discard;
+        }
+    }
+    
     // Sample base artwork
     vec4 artworkColor = texture2D(artworkMap, vUv);
     

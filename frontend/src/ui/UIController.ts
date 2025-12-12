@@ -64,6 +64,7 @@ export class UIController {
     const foilMask = ResourceManager.getMaskTexture('foil');
     const uvMask = ResourceManager.getMaskTexture('uv');
     const embossMask = ResourceManager.getMaskTexture('emboss');
+    const dieCutMask = ResourceManager.getMaskTexture('diecut');
 
     // Start with white texture - color will be controlled by Color section
     // Using white texture (1,1,1) so that uBaseColor directly controls the card color
@@ -82,7 +83,8 @@ export class UIController {
       artwork: artworkTexture,
       foilMask: foilMask || ResourceManager.createPlaceholderTexture(512, 512, new THREE.Color(0, 0, 0)),
       uvMask: uvMask || ResourceManager.createPlaceholderTexture(512, 512, new THREE.Color(0, 0, 0)),
-      embossMask: embossMask || ResourceManager.createPlaceholderTexture(512, 512, new THREE.Color(0, 0, 0))
+      embossMask: embossMask || ResourceManager.createPlaceholderTexture(512, 512, new THREE.Color(0, 0, 0)),
+      dieCutMask: dieCutMask || ResourceManager.createPlaceholderTexture(512, 512, new THREE.Color(0, 0, 0))
     });
 
     // Create mesh and add to scene
