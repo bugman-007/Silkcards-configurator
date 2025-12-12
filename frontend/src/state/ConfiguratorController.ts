@@ -121,6 +121,14 @@ export class ConfiguratorController {
   }
 
   /**
+   * Set edge color (hex color string, e.g., "#FFFFFF")
+   */
+  setEdgeColor(color: string): void {
+    this.state.edgeColor = color;
+    this.notifyListeners();
+  }
+
+  /**
    * Reset to default configuration
    */
   reset(): void {

@@ -69,6 +69,9 @@ export class EngineBridge {
       embossMode
     );
     MaterialPipeline.updateDieCut(this.material, state.dieCut);
+    
+    // Update edge color
+    MaterialPipeline.updateEdgeColor(this.material, state.edgeColor);
   }
 
   /**

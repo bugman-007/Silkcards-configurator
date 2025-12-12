@@ -256,11 +256,11 @@ export class UIController {
       });
     }
 
-    // Color swatches
-    const colorSwatches = document.querySelectorAll('.color-swatch');
-    colorSwatches.forEach(swatch => {
+    // Base color swatches
+    const baseColorSwatches = document.querySelectorAll('#base-color-swatches .color-swatch');
+    baseColorSwatches.forEach(swatch => {
       swatch.addEventListener('click', () => {
-        colorSwatches.forEach(s => s.classList.remove('selected'));
+        baseColorSwatches.forEach(s => s.classList.remove('selected'));
         swatch.classList.add('selected');
         
         const swatchEl = swatch as HTMLElement;
@@ -274,7 +274,7 @@ export class UIController {
       });
     });
 
-    // Custom color picker
+    // Custom base color picker
     const customColorPicker = document.getElementById('custom-color-picker') as HTMLInputElement;
     if (customColorPicker) {
       customColorPicker.addEventListener('change', () => {
@@ -282,8 +282,40 @@ export class UIController {
         const customColorSwatch = document.getElementById('custom-color-swatch');
         if (customColorSwatch) {
           customColorSwatch.style.background = customColorPicker.value;
-          colorSwatches.forEach(s => s.classList.remove('selected'));
+          baseColorSwatches.forEach(s => s.classList.remove('selected'));
           customColorSwatch.classList.add('selected');
+        }
+      });
+    }
+
+    // Edge color swatches
+    const edgeColorSwatches = document.querySelectorAll('#edge-color-swatches .color-swatch');
+    edgeColorSwatches.forEach(swatch => {
+      swatch.addEventListener('click', () => {
+        edgeColorSwatches.forEach(s => s.classList.remove('selected'));
+        swatch.classList.add('selected');
+        
+        const swatchEl = swatch as HTMLElement;
+        const styleAttr = swatchEl.getAttribute('style');
+        if (styleAttr) {
+          const match = styleAttr.match(/background:\s*(#[0-9A-Fa-f]{6}|#[0-9A-Fa-f]{3})/);
+          if (match && match[1]) {
+            this.configController.setEdgeColor(match[1]);
+          }
+        }
+      });
+    });
+
+    // Custom edge color picker
+    const customEdgeColorPicker = document.getElementById('custom-edge-color-picker') as HTMLInputElement;
+    if (customEdgeColorPicker) {
+      customEdgeColorPicker.addEventListener('change', () => {
+        this.configController.setEdgeColor(customEdgeColorPicker.value);
+        const customEdgeColorSwatch = document.getElementById('custom-edge-color-swatch');
+        if (customEdgeColorSwatch) {
+          customEdgeColorSwatch.style.background = customEdgeColorPicker.value;
+          edgeColorSwatches.forEach(s => s.classList.remove('selected'));
+          customEdgeColorSwatch.classList.add('selected');
         }
       });
     }

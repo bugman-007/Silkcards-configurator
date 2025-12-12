@@ -11,6 +11,9 @@ uniform sampler2D artworkMap;
 // Base color tint (for stock preview)
 uniform vec3 uBaseColor;
 
+// Edge color (for card edges)
+uniform vec3 uEdgeColor;
+
 // Finish mask textures
 uniform sampler2D foilMask;
 uniform sampler2D uvMask;
@@ -48,8 +51,16 @@ void main() {
     // Sample base artwork
     vec4 artworkColor = texture2D(artworkMap, vUv);
     
-    // Apply base color tint
-    vec3 baseColor = artworkColor.rgb * uBaseColor;
+    // Determine color based on face type
+    // vFaceType: 0.0 = front, 1.0 = back, 2.0 = edge
+    vec3 baseColor;
+    if (vFaceType == 2.0) {
+        // Edge faces use edge color
+        baseColor = uEdgeColor;
+    } else {
+        // Front and back faces use base color tint
+        baseColor = artworkColor.rgb * uBaseColor;
+    }
     
     // ===================================================
     // Emboss / Deboss Height Map → Normal Perturbation

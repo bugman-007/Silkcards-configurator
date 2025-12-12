@@ -40,6 +40,9 @@ export class MaterialPipeline {
 
         // Base color tint (for stock preview)
         uBaseColor: { value: new THREE.Color(1.0, 1.0, 1.0) },
+        
+        // Edge color (for card edges)
+        uEdgeColor: { value: new THREE.Color(1.0, 1.0, 1.0) },
 
         // Finish mask textures
         foilMask: { value: foilMask },
@@ -101,6 +104,21 @@ export class MaterialPipeline {
       ? color 
       : new THREE.Color(color);
     material.uniforms.uBaseColor.value = threeColor;
+  }
+
+  /**
+   * Update edge color (applied to card edges)
+   */
+  static updateEdgeColor(
+    material: THREE.ShaderMaterial,
+    color: THREE.Color | string
+  ): void {
+    const threeColor = color instanceof THREE.Color 
+      ? color 
+      : new THREE.Color(color);
+    if (material.uniforms.uEdgeColor) {
+      material.uniforms.uEdgeColor.value = threeColor;
+    }
   }
 
   /**
