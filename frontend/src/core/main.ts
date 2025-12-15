@@ -1,24 +1,26 @@
-import { UIController } from '../ui/UIController.js';
-
 /**
  * Main Application Entry Point
- * Initializes the UI controller which handles all engine setup and UI bindings
+ * Routes to Configurator or Proofer based on URL path
  */
 
-async function init() {
-  try {
-    console.log('Initializing 3D Card Configurator...');
-    await UIController.init();
-    console.log('Application initialized successfully');
-  } catch (error) {
-    console.error('Failed to initialize application:', error);
+/**
+ * Route to appropriate app based on URL pathname
+ */
+function route(): void {
+  const pathname = window.location.pathname;
+
+  // Route to proofer if path is /proofer
+  if (pathname === '/proofer' || pathname.startsWith('/proofer/')) {
+    import('../app/proofer/index.js');
+  } else {
+    // Default to configurator (/, /configurator, or any other path)
+    import('../app/configurator/index.js');
   }
 }
 
-// Start application when DOM is ready
+// Route when DOM is ready
 if (document.readyState === 'loading') {
-  document.addEventListener('DOMContentLoaded', init);
+  document.addEventListener('DOMContentLoaded', route);
 } else {
-  init();
+  route();
 }
-
