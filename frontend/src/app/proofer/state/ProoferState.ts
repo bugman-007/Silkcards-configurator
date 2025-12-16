@@ -9,6 +9,59 @@ export type CardSide = 'front' | 'back';
 export type LayerType = 'artwork' | 'foil' | 'uv' | 'emboss' | 'diecut';
 
 /**
+ * Parser Plate Type
+ */
+export type ParserPlateType = 'PRINT' | 'FOIL_MASK' | 'SPOT_UV_MASK' | 'EMBOSS' | 'DIECUT';
+
+/**
+ * Parser Plate Asset URLs
+ */
+export interface ParserPlateAssets {
+  png?: string;
+  maskPng?: string;
+  heightPng?: string;
+  svg?: string;
+}
+
+/**
+ * Parser Plate (from JSON)
+ */
+export interface ParserPlate {
+  id: string;
+  aiLayerName: string;
+  side: CardSide;
+  depthIndex: number;
+  physicalPlyIndex: number;
+  face: CardSide;
+  type: ParserPlateType;
+  assets: ParserPlateAssets;
+  meta?: Record<string, any>;
+}
+
+/**
+ * Parser Payload (from JSON)
+ */
+export interface ParserPayload {
+  schemaVersion?: string;
+  jobId?: string;
+  createdAt?: string;
+  card: {
+    stockId?: string;
+    thicknessPt: number;
+    plyCount: number;
+    size: {
+      widthMm: number;
+      heightMm: number;
+      bleedMm?: number;
+      safeMm?: number;
+    };
+    dpi?: number;
+  };
+  plates: ParserPlate[];
+  layersDetected?: string[];
+}
+
+/**
  * Parsed Plate
  * 
  * Represents a plate extracted from uploaded file
@@ -98,6 +151,9 @@ export interface ProoferState {
   
   // View side
   viewSide: CardSide;
+  
+  // Parser payload
+  parserPayload?: ParserPayload;
 }
 
 /**
@@ -136,6 +192,8 @@ export function createDefaultProoferState(): ProoferState {
     
     approved: false,
     
-    viewSide: 'front'
+    viewSide: 'front',
+    
+    parserPayload: undefined
   };
 }

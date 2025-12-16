@@ -25,6 +25,7 @@ export class ProoferUI {
   private prooferController: ProoferController;
   private engineBridge: EngineBridge;
   private canvasContainer: HTMLElement;
+  private resizeObserver: ResizeObserver | null = null;
 
   /**
    * Initialize the proofer UI
@@ -109,8 +110,33 @@ export class ProoferUI {
       this.updateGeometry(state);
     });
 
+    // Watch for container size changes (when panels are resized)
+    this.setupResizeObserver();
+
     console.log('[Proofer] Viewport initialized');
   }
+
+  /**
+   * Setup ResizeObserver to watch canvas container size changes
+   * This ensures the renderer updates when panels are resized
+   */
+  private setupResizeObserver(): void {
+    this.resizeObserver = new ResizeObserver(() => {
+      // Debounce resize to avoid excessive calls
+      if (this.resizeTimeout) {
+        clearTimeout(this.resizeTimeout);
+      }
+      this.resizeTimeout = setTimeout(() => {
+        if (this.engineController) {
+          this.engineController.resize();
+        }
+      }, 100);
+    });
+
+    this.resizeObserver.observe(this.canvasContainer);
+  }
+
+  private resizeTimeout: NodeJS.Timeout | null = null;
 
   /**
    * Update geometry from state
@@ -129,6 +155,17 @@ export class ProoferUI {
    * Dispose of resources
    */
   dispose(): void {
+    // Clean up resize observer
+    if (this.resizeObserver) {
+      this.resizeObserver.disconnect();
+      this.resizeObserver = null;
+    }
+
+    if (this.resizeTimeout) {
+      clearTimeout(this.resizeTimeout);
+      this.resizeTimeout = null;
+    }
+
     if (this.engineController) {
       this.engineController.dispose();
     }

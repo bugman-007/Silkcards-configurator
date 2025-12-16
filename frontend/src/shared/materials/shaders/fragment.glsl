@@ -70,8 +70,8 @@ void main() {
     vec3 N0 = N;
     float embossHeight = 0.0;
     
-    // Apply emboss/deboss normal perturbation only on front face
-    if (vFaceType == 0.0 && embossEnabled) {
+    // Apply emboss/deboss normal perturbation on front or back face
+    if ((vFaceType == 0.0 || vFaceType == 1.0) && embossEnabled) {
         float h = texture2D(embossMask, vUv).r;
         embossHeight = h;
         
@@ -104,7 +104,7 @@ void main() {
     float embossAmbientBoost = 0.0;
     
     // Add emboss enhancement for visibility from all angles
-    if (vFaceType == 0.0 && embossEnabled && embossHeight > 0.01) {
+    if ((vFaceType == 0.0 || vFaceType == 1.0) && embossEnabled && embossHeight > 0.01) {
         // Height-based shading: raised areas get brighter, recessed areas darker
         // This creates depth perception independent of light direction
         float heightFactor = (embossHeight - 0.5) * embossMode; // -0.5 to +0.5 range
@@ -125,11 +125,10 @@ void main() {
     // Combine base lighting
     vec3 litColor = baseColor * (ambient + diffuse);
     
-    // Apply finish effects only on the front face (vFaceType == 0.0)
+    // Apply finish effects on front or back face (not on edges)
     // vFaceType: 0.0 = front, 1.0 = back, 2.0 = edge
     // Edges (vFaceType == 2.0) should never receive finish effects
-    // Back face (vFaceType == 1.0) can optionally receive effects in the future
-    if (vFaceType == 0.0) {
+    if (vFaceType == 0.0 || vFaceType == 1.0) {
         
         // Apply foil effect (mask-driven metallic BRDF)
         if (foilEnabled) {
