@@ -69,6 +69,15 @@ export class ParserClient {
     file: File,
     onProgress?: (progress: number) => void
   ): Promise<ParseJobResponse> {
+    // If backend auth is enabled, a missing client key will always 401.
+    // Fail fast with a clear message so this is easy to diagnose in deployed builds.
+    if (!this.apiKey) {
+      throw new Error(
+        'Missing API key for parser service. Set VITE_PARSER_API_KEY (Vite client env var) ' +
+        'to match the parser backend API_KEY, then restart/rebuild the frontend.'
+      );
+    }
+
     const formData = new FormData();
     formData.append('file', file);
 
@@ -98,7 +107,11 @@ export class ParserClient {
             reject(new Error('Failed to parse response'));
           }
         } else {
-          reject(new Error(`Parser upload failed: ${xhr.status} ${xhr.statusText}`));
+          const body = (xhr.responseText || '').trim();
+          reject(new Error(
+            `Parser upload failed: ${xhr.status} ${xhr.statusText}` +
+            (body ? ` - ${body}` : '')
+          ));
         }
       });
 
@@ -121,9 +134,7 @@ export class ParserClient {
       xhr.open('POST', url);
       
       // Set headers
-      if (this.apiKey) {
-        xhr.setRequestHeader('x-api-key', this.apiKey);
-      }
+      xhr.setRequestHeader('x-api-key', this.apiKey);
 
       xhr.send(formData);
     });
@@ -133,10 +144,15 @@ export class ParserClient {
    * Get job status
    */
   async getJobStatus(jobId: string): Promise<ParseJobStatus> {
-    const headers: HeadersInit = {};
-    if (this.apiKey) {
-      headers['x-api-key'] = this.apiKey;
+    if (!this.apiKey) {
+      throw new Error(
+        'Missing API key for parser service. Set VITE_PARSER_API_KEY (Vite client env var) ' +
+        'to match the parser backend API_KEY, then restart/rebuild the frontend.'
+      );
     }
+
+    const headers: HeadersInit = {};
+    headers['x-api-key'] = this.apiKey;
 
     const response = await fetch(`${this.baseUrl}/parse/${jobId}`, {
       method: 'GET',
