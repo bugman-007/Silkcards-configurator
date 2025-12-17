@@ -217,13 +217,13 @@ export class ProoferController {
       if (plate.type === 'FOIL_MASK') layerType = 'foil';
       else if (plate.type === 'SPOT_UV_MASK') layerType = 'uv';
       else if (plate.type === 'EMBOSS') layerType = 'emboss';
-      else if (plate.type === 'DIECUT') layerType = 'diecut';
+      else if (plate.type === 'DIECUT_MASK' || plate.type === 'DIECUT_SVG') layerType = 'diecut';
       else if (plate.type === 'PRINT') layerType = 'artwork';
       
       // Get asset URL (prefer png for PRINT, maskPng for masks)
-      const assetUrl = plate.type === 'PRINT' 
-        ? plate.assets.png 
-        : plate.assets.maskPng || plate.assets.png;
+      const assetUrl = plate.type === 'PRINT'
+        ? plate.assets.png
+        : plate.assets.maskPng || plate.assets.heightPng || plate.assets.svg || plate.assets.png;
       
       return {
         id: plate.id,
@@ -330,8 +330,8 @@ export class ProoferController {
       console.log(`[Proofer] Assigned embossBack=${embossBack.id}`);
     }
     
-    // Find diecut (can be on either side, but affects all)
-    const diecut = plates.find(p => p.type === 'DIECUT');
+    // Find diecut mask (can be on either side, but affects all)
+    const diecut = plates.find(p => p.type === 'DIECUT_MASK') || plates.find(p => p.type === 'DIECUT_SVG');
     if (diecut) {
       this.state.optionStates.diecut.enabled = true;
       this.state.optionStates.diecut.side = diecut.side;

@@ -22,6 +22,7 @@ export class EngineBridge {
   private material: THREE.ShaderMaterial;
   private cardGeometry: CardGeometry;
   private loadedTextures: Map<string, THREE.Texture> = new Map();
+  private composedTextures: Map<string, THREE.Texture> = new Map();
 
   constructor(
     controller: ProoferController,
@@ -31,6 +32,10 @@ export class EngineBridge {
     this.controller = controller;
     this.material = material;
     this.cardGeometry = cardGeometry;
+
+    // Z-fighting / ordering hygiene (single-material pipeline, but prevents depth artifacts when discard/alpha is used)
+    this.material.depthWrite = false;
+    this.material.depthTest = true;
 
     // Subscribe to state changes
     this.controller.addListener((state) => this.onStateChange(state));
@@ -102,150 +107,143 @@ export class EngineBridge {
   private async loadTexturesFromParserPayload(payload: ParserPayload, state: ProoferState): Promise<void> {
     const currentSide = state.viewSide;
 
-    // Load front print
-    const printFrontPlate = payload.plates.find(p => 
-      p.side === 'front' && p.type === 'PRINT' && p.depthIndex === 0
-    );
-    if (printFrontPlate && printFrontPlate.assets.png) {
-      await this.loadTextureFromUrl(printFrontPlate.assets.png, 'artwork', 'front');
-      // Apply immediately if viewing front
-      if (currentSide === 'front') {
-        const cacheKey = `artwork-front-mask-${printFrontPlate.assets.png}`;
-        if (this.loadedTextures.has(cacheKey)) {
-          this.updateMaterialTexture('artwork', this.loadedTextures.get(cacheKey)!, 'front');
-        }
-      }
+    // PRINT: stack/composite all print plates for each side, sorted by depthIndex
+    await this.composeAndApplyPrint(payload, 'front', currentSide);
+    await this.composeAndApplyPrint(payload, 'back', currentSide);
+
+    // Masks: union/max across all depths (single-mask shader constraint)
+    await this.composeAndApplyMask(payload, 'FOIL_MASK', 'foil', 'front', currentSide, state);
+    await this.composeAndApplyMask(payload, 'FOIL_MASK', 'foil', 'back', currentSide, state);
+
+    await this.composeAndApplyMask(payload, 'SPOT_UV_MASK', 'uv', 'front', currentSide, state);
+    await this.composeAndApplyMask(payload, 'SPOT_UV_MASK', 'uv', 'back', currentSide, state);
+
+    await this.composeAndApplyEmboss(payload, 'front', currentSide, state);
+    await this.composeAndApplyEmboss(payload, 'back', currentSide, state);
+
+    // Die-cut: prefer mask plates; SVG is preserved in meta but not used by current shader pipeline
+    await this.composeAndApplyMask(payload, 'DIECUT_MASK', 'diecut', state.optionStates.diecut.side, currentSide, state);
+  }
+
+  private getPlatesSorted(payload: ParserPayload, side: 'front' | 'back', type: string): ParserPlate[] {
+    return payload.plates
+      .filter(p => p.side === side && p.type === (type as any))
+      .slice()
+      .sort((a, b) => (a.depthIndex ?? 0) - (b.depthIndex ?? 0) || a.id.localeCompare(b.id));
+  }
+
+  private async composeAndApplyPrint(payload: ParserPayload, side: 'front' | 'back', currentSide: 'front' | 'back'): Promise<void> {
+    const printPlates = this.getPlatesSorted(payload, side, 'PRINT').filter(p => !!p.assets.png);
+    if (printPlates.length === 0) return;
+
+    const urls = printPlates.map(p => p.assets.png!);
+    const composed = await this.getOrComposeStackedTexture(`print:${side}`, urls, 'stack');
+
+    // Only apply to material when that side is currently visible (shader uses a single artworkMap)
+    if (currentSide === side) {
+      this.updateMaterialTexture('artwork', composed, side);
+    }
+  }
+
+  private async composeAndApplyMask(
+    payload: ParserPayload,
+    plateType: string,
+    target: 'foil' | 'uv' | 'diecut',
+    side: 'front' | 'back',
+    currentSide: 'front' | 'back',
+    state: ProoferState
+  ): Promise<void> {
+    const plates = this.getPlatesSorted(payload, side, plateType).filter(p => !!p.assets.maskPng);
+    if (plates.length === 0) return;
+
+    const urls = plates.map(p => p.assets.maskPng!);
+    const composed = await this.getOrComposeStackedTexture(`mask:${plateType}:${side}`, urls, 'max');
+
+    const optionState =
+      target === 'foil' ? state.optionStates.foil :
+      target === 'uv' ? state.optionStates.uv :
+      state.optionStates.diecut;
+
+    if (currentSide === side && optionState.enabled && optionState.side === side) {
+      this.updateMaterialTexture(target, composed, side);
+    }
+  }
+
+  private async composeAndApplyEmboss(
+    payload: ParserPayload,
+    side: 'front' | 'back',
+    currentSide: 'front' | 'back',
+    state: ProoferState
+  ): Promise<void> {
+    const plates = this.getPlatesSorted(payload, side, 'EMBOSS');
+    if (plates.length === 0) return;
+
+    // Prefer height maps if present; otherwise merge masks.
+    const heightUrls = plates.map(p => p.assets.heightPng).filter(Boolean) as string[];
+    const maskUrls = plates.map(p => p.assets.maskPng).filter(Boolean) as string[];
+    const urls = heightUrls.length > 0 ? heightUrls : maskUrls;
+    if (urls.length === 0) return;
+
+    const composed = await this.getOrComposeStackedTexture(`emboss:${side}:${heightUrls.length > 0 ? 'height' : 'mask'}`, urls, 'max');
+
+    if (currentSide === side && state.optionStates.emboss.enabled && state.optionStates.emboss.side === side) {
+      this.updateMaterialTexture('emboss', composed, side);
+    }
+  }
+
+  private async getOrComposeStackedTexture(
+    cacheKey: string,
+    urls: string[],
+    mode: 'stack' | 'max'
+  ): Promise<THREE.Texture> {
+    const signature = `${cacheKey}::${urls.join('|')}`;
+    const cached = this.composedTextures.get(signature);
+    if (cached) return cached;
+
+    // Load all source textures first (in stable order)
+    const textures = await Promise.all(urls.map((u) => ResourceManager.loadTexture(u)));
+    const images = textures.map(t => t.image as any).filter(Boolean);
+    if (images.length === 0) {
+      // Fallback: black (no effect)
+      return ResourceManager.createPlaceholderTexture(512, 512, new THREE.Color(0, 0, 0));
     }
 
-    // Load back print
-    const printBackPlate = payload.plates.find(p => 
-      p.side === 'back' && p.type === 'PRINT' && p.depthIndex === 0
-    );
-    if (printBackPlate && printBackPlate.assets.png) {
-      await this.loadTextureFromUrl(printBackPlate.assets.png, 'artwork', 'back');
-      // Apply immediately if viewing back
-      if (currentSide === 'back') {
-        const cacheKey = `artwork-back-mask-${printBackPlate.assets.png}`;
-        if (this.loadedTextures.has(cacheKey)) {
-          this.updateMaterialTexture('artwork', this.loadedTextures.get(cacheKey)!, 'back');
+    const w = images[0].width || images[0].naturalWidth;
+    const h = images[0].height || images[0].naturalHeight;
+
+    const canvas = document.createElement('canvas');
+    canvas.width = w;
+    canvas.height = h;
+    const ctx = canvas.getContext('2d', { willReadFrequently: mode === 'max' })!;
+
+    if (mode === 'stack') {
+      for (const img of images) {
+        ctx.drawImage(img, 0, 0, w, h);
+      }
+    } else {
+      // Union/max per-channel across all layers.
+      // (We only need grayscale masks, but max per channel is robust for colored inputs.)
+      const accum = new Uint8ClampedArray(w * h * 4);
+      for (const img of images) {
+        ctx.clearRect(0, 0, w, h);
+        ctx.drawImage(img, 0, 0, w, h);
+        const data = ctx.getImageData(0, 0, w, h).data;
+        for (let i = 0; i < accum.length; i++) {
+          if (data[i] > accum[i]) accum[i] = data[i];
         }
       }
+      const out = ctx.createImageData(w, h);
+      out.data.set(accum);
+      ctx.putImageData(out, 0, 0);
     }
 
-    // Load foil masks
-    const foilFrontPlate = payload.plates.find(p => 
-      p.side === 'front' && p.type === 'FOIL_MASK' && p.depthIndex === 0
-    );
-    if (foilFrontPlate && foilFrontPlate.assets.maskPng) {
-      await this.loadTextureFromUrl(foilFrontPlate.assets.maskPng, 'foil', 'front');
-      if (currentSide === 'front' && state.optionStates.foil.enabled && state.optionStates.foil.side === 'front') {
-        const cacheKey = `foil-front-mask-${foilFrontPlate.assets.maskPng}`;
-        if (this.loadedTextures.has(cacheKey)) {
-          this.updateMaterialTexture('foil', this.loadedTextures.get(cacheKey)!, 'front');
-        }
-      }
-    }
+    const outTex = new THREE.CanvasTexture(canvas);
+    outTex.flipY = false;
+    outTex.colorSpace = THREE.SRGBColorSpace;
+    outTex.needsUpdate = true;
 
-    const foilBackPlate = payload.plates.find(p => 
-      p.side === 'back' && p.type === 'FOIL_MASK' && p.depthIndex === 0
-    );
-    if (foilBackPlate && foilBackPlate.assets.maskPng) {
-      await this.loadTextureFromUrl(foilBackPlate.assets.maskPng, 'foil', 'back');
-      if (currentSide === 'back' && state.optionStates.foil.enabled && state.optionStates.foil.side === 'back') {
-        const cacheKey = `foil-back-mask-${foilBackPlate.assets.maskPng}`;
-        if (this.loadedTextures.has(cacheKey)) {
-          this.updateMaterialTexture('foil', this.loadedTextures.get(cacheKey)!, 'back');
-        }
-      }
-    }
-
-    // Load UV masks
-    const uvFrontPlate = payload.plates.find(p => 
-      p.side === 'front' && p.type === 'SPOT_UV_MASK' && p.depthIndex === 0
-    );
-    if (uvFrontPlate && uvFrontPlate.assets.maskPng) {
-      await this.loadTextureFromUrl(uvFrontPlate.assets.maskPng, 'uv', 'front');
-      if (currentSide === 'front' && state.optionStates.uv.enabled && state.optionStates.uv.side === 'front') {
-        const cacheKey = `uv-front-mask-${uvFrontPlate.assets.maskPng}`;
-        if (this.loadedTextures.has(cacheKey)) {
-          this.updateMaterialTexture('uv', this.loadedTextures.get(cacheKey)!, 'front');
-        }
-      }
-    }
-
-    const uvBackPlate = payload.plates.find(p => 
-      p.side === 'back' && p.type === 'SPOT_UV_MASK' && p.depthIndex === 0
-    );
-    if (uvBackPlate && uvBackPlate.assets.maskPng) {
-      await this.loadTextureFromUrl(uvBackPlate.assets.maskPng, 'uv', 'back');
-      if (currentSide === 'back' && state.optionStates.uv.enabled && state.optionStates.uv.side === 'back') {
-        const cacheKey = `uv-back-mask-${uvBackPlate.assets.maskPng}`;
-        if (this.loadedTextures.has(cacheKey)) {
-          this.updateMaterialTexture('uv', this.loadedTextures.get(cacheKey)!, 'back');
-        }
-      }
-    }
-
-    // Load emboss masks and height maps
-    const embossFrontPlate = payload.plates.find(p => 
-      p.side === 'front' && p.type === 'EMBOSS' && p.depthIndex === 0
-    );
-    if (embossFrontPlate) {
-      // Prefer height map over mask
-      if (embossFrontPlate.assets.heightPng) {
-        await this.loadTextureFromUrl(embossFrontPlate.assets.heightPng, 'emboss', 'front', true);
-        if (currentSide === 'front' && state.optionStates.emboss.enabled && state.optionStates.emboss.side === 'front') {
-          const cacheKey = `emboss-front-height-${embossFrontPlate.assets.heightPng}`;
-          if (this.loadedTextures.has(cacheKey)) {
-            this.updateMaterialTexture('emboss', this.loadedTextures.get(cacheKey)!, 'front');
-          }
-        }
-      } else if (embossFrontPlate.assets.maskPng) {
-        await this.loadTextureFromUrl(embossFrontPlate.assets.maskPng, 'emboss', 'front');
-        if (currentSide === 'front' && state.optionStates.emboss.enabled && state.optionStates.emboss.side === 'front') {
-          const cacheKey = `emboss-front-mask-${embossFrontPlate.assets.maskPng}`;
-          if (this.loadedTextures.has(cacheKey)) {
-            this.updateMaterialTexture('emboss', this.loadedTextures.get(cacheKey)!, 'front');
-          }
-        }
-      }
-    }
-
-    const embossBackPlate = payload.plates.find(p => 
-      p.side === 'back' && p.type === 'EMBOSS' && p.depthIndex === 0
-    );
-    if (embossBackPlate) {
-      // Prefer height map over mask
-      if (embossBackPlate.assets.heightPng) {
-        await this.loadTextureFromUrl(embossBackPlate.assets.heightPng, 'emboss', 'back', true);
-        if (currentSide === 'back' && state.optionStates.emboss.enabled && state.optionStates.emboss.side === 'back') {
-          const cacheKey = `emboss-back-height-${embossBackPlate.assets.heightPng}`;
-          if (this.loadedTextures.has(cacheKey)) {
-            this.updateMaterialTexture('emboss', this.loadedTextures.get(cacheKey)!, 'back');
-          }
-        }
-      } else if (embossBackPlate.assets.maskPng) {
-        await this.loadTextureFromUrl(embossBackPlate.assets.maskPng, 'emboss', 'back');
-        if (currentSide === 'back' && state.optionStates.emboss.enabled && state.optionStates.emboss.side === 'back') {
-          const cacheKey = `emboss-back-mask-${embossBackPlate.assets.maskPng}`;
-          if (this.loadedTextures.has(cacheKey)) {
-            this.updateMaterialTexture('emboss', this.loadedTextures.get(cacheKey)!, 'back');
-          }
-        }
-      }
-    }
-
-    // Load diecut mask
-    const diecutPlate = payload.plates.find(p => p.type === 'DIECUT');
-    if (diecutPlate && diecutPlate.assets.maskPng) {
-      await this.loadTextureFromUrl(diecutPlate.assets.maskPng, 'diecut', diecutPlate.side);
-      if (state.optionStates.diecut.enabled) {
-        const cacheKey = `diecut-${diecutPlate.side}-mask-${diecutPlate.assets.maskPng}`;
-        if (this.loadedTextures.has(cacheKey)) {
-          this.updateMaterialTexture('diecut', this.loadedTextures.get(cacheKey)!, diecutPlate.side);
-        }
-      }
-    }
+    this.composedTextures.set(signature, outTex);
+    return outTex;
   }
 
   /**
@@ -462,5 +460,7 @@ export class EngineBridge {
     // Dispose cached textures
     this.loadedTextures.forEach(texture => texture.dispose());
     this.loadedTextures.clear();
+    this.composedTextures.forEach(texture => texture.dispose());
+    this.composedTextures.clear();
   }
 }

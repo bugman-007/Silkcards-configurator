@@ -11,7 +11,13 @@ export type LayerType = 'artwork' | 'foil' | 'uv' | 'emboss' | 'diecut';
 /**
  * Parser Plate Type
  */
-export type ParserPlateType = 'PRINT' | 'FOIL_MASK' | 'SPOT_UV_MASK' | 'EMBOSS' | 'DIECUT';
+export type ParserPlateType =
+  | 'PRINT'
+  | 'FOIL_MASK'
+  | 'SPOT_UV_MASK'
+  | 'EMBOSS'
+  | 'DIECUT_MASK'
+  | 'DIECUT_SVG';
 
 /**
  * Parser Plate Asset URLs
