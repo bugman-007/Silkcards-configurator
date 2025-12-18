@@ -4,7 +4,7 @@ import { ResourceManager } from '../resources/ResourceManager.js';
 import { LightingController } from './LightingController.js';
 
 /**
- * Engine Controller
+ * Engine Controller - Proofer
  * Core rendering system - decoupled from business logic
  * Manages renderer, scene, camera, lighting, and render loop
  */

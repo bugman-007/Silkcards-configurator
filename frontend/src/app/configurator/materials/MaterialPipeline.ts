@@ -3,8 +3,8 @@ import vertexShader from './shaders/vertex.glsl';
 import fragmentShader from './shaders/fragment.glsl';
 
 /**
- * Material Pipeline
- * Simplified material pipeline with procedural finish effects
+ * Material Pipeline - Configurator
+ * Simplified material pipeline with procedural finish effects for configurator
  * All methods are static for decoupled usage
  */
 export class MaterialPipeline {

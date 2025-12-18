@@ -1,5 +1,5 @@
 /**
- * Lighting Controller
+ * Lighting Controller - Configurator
  * 
  * Manages lighting for Neutral Proof mode only.
  * Simple, consistent lighting for configurator preview.

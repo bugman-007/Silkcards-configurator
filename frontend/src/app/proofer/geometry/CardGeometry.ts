@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 
 /**
- * Procedural Card Geometry Generator
+ * Procedural Card Geometry Generator - Proofer
  * Creates dynamic card meshes with rounded corners, proper UVs, and thickness
  * 
  * UVs are always in 0-1 range and scale with card size to match artwork scaling

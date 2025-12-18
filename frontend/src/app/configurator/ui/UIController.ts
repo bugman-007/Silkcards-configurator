@@ -6,10 +6,10 @@
  */
 
 import * as THREE from 'three';
-import { EngineController } from '../../../shared/engine/EngineController.js';
-import { CardGeometry } from '../../../shared/geometry/CardGeometry.js';
-import { MaterialPipeline } from '../../../shared/materials/MaterialPipeline.js';
-import { ResourceManager } from '../../../shared/resources/ResourceManager.js';
+import { EngineController } from '../engine/EngineController.js';
+import { CardGeometry } from '../geometry/CardGeometry.js';
+import { MaterialPipeline } from '../materials/MaterialPipeline.js';
+import { ResourceManager } from '../resources/ResourceManager.js';
 import { ConfiguratorController } from '../state/ConfiguratorController.js';
 import { EngineBridge } from '../bridge/EngineBridge.js';
 import type { StockType } from '../state/ConfigState.js';

@@ -7,9 +7,9 @@
 
 import * as THREE from 'three';
 import { ProoferController } from '../state/ProoferController.js';
-import { MaterialPipeline } from '../../../shared/materials/MaterialPipeline.js';
-import { ResourceManager } from '../../../shared/resources/ResourceManager.js';
-import { CardGeometry } from '../../../shared/geometry/CardGeometry.js';
+import { MaterialPipeline } from '../materials/MaterialPipeline.js';
+import { ResourceManager } from '../resources/ResourceManager.js';
+import { CardGeometry } from '../geometry/CardGeometry.js';
 import { ProoferState, ParsedPlate, ParserPayload, ParserPlate } from '../state/ProoferState.js';
 
 /**

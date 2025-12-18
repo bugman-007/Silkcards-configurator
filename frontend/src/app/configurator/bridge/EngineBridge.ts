@@ -8,7 +8,7 @@
 import * as THREE from 'three';
 import { ConfiguratorController } from '../state/ConfiguratorController.js';
 import { ConfigState, StockType } from '../state/ConfigState.js';
-import { MaterialPipeline } from '../../../shared/materials/MaterialPipeline.js';
+import { MaterialPipeline } from '../materials/MaterialPipeline.js';
 
 /**
  * Stock color mapping (for stock preview)

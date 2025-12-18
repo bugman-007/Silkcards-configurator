@@ -3,8 +3,8 @@ import { RGBELoader } from 'three/examples/jsm/loaders/RGBELoader.js';
 import { TextureLoader } from 'three';
 
 /**
- * Resource Manager
- * Centralized GPU asset loading
+ * Resource Manager - Configurator
+ * Centralized GPU asset loading for configurator
  */
 export class ResourceManager {
   private static hdrLoader: RGBELoader | null = null;
