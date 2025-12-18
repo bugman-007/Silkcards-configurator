@@ -225,12 +225,16 @@ export class ProoferController {
         ? plate.assets.png
         : plate.assets.maskPng || plate.assets.heightPng || plate.assets.svg || plate.assets.png;
       
+      // Get thumbnail URL (prefer PNG for display)
+      const thumbnailUrl = plate.assets.png || plate.assets.maskPng || plate.assets.heightPng;
+      
       return {
         id: plate.id,
         type: layerType,
         side: plate.side,
         filename: plate.aiLayerName,
-        file: assetUrl // Store URL string
+        thumbnail: thumbnailUrl, // PNG URL for thumbnail display
+        file: assetUrl // Store URL string for actual use
       };
     });
     

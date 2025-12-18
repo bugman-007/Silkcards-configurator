@@ -15,14 +15,18 @@ export class MaterialPipeline {
    * @returns THREE.ShaderMaterial configured with mask-driven shader
    */
   static createCardMaterial(options: {
-    artwork?: THREE.Texture;
+    frontArtwork?: THREE.Texture;
+    backArtwork?: THREE.Texture;
+    artwork?: THREE.Texture; // Deprecated: use frontArtwork/backArtwork
     foilMask?: THREE.Texture;
     uvMask?: THREE.Texture;
     embossMask?: THREE.Texture;
     dieCutMask?: THREE.Texture;
   }): THREE.ShaderMaterial {
-    // Create placeholder artwork if not provided
-    const artwork = options.artwork || MaterialPipeline.createPlaceholderTexture(512, 512, new THREE.Color(0.8, 0.8, 0.9));
+    // Create placeholder artwork textures if not provided
+    const defaultArtwork = MaterialPipeline.createPlaceholderTexture(512, 512, new THREE.Color(0.8, 0.8, 0.9));
+    const frontArtwork = options.frontArtwork || options.artwork || defaultArtwork;
+    const backArtwork = options.backArtwork || options.artwork || defaultArtwork;
     
     // Create placeholder masks (black = no effect) if not provided
     const foilMask = options.foilMask || MaterialPipeline.createPlaceholderTexture(512, 512, new THREE.Color(0, 0, 0));
@@ -35,8 +39,9 @@ export class MaterialPipeline {
       vertexShader,
       fragmentShader,
       uniforms: {
-        // Base artwork texture
-        artworkMap: { value: artwork },
+        // Base artwork textures - separate for front and back
+        frontArtworkMap: { value: frontArtwork },
+        backArtworkMap: { value: backArtwork },
 
         // Base color tint (for stock preview)
         uBaseColor: { value: new THREE.Color(1.0, 1.0, 1.0) },

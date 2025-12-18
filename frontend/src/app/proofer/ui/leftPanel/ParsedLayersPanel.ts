@@ -94,7 +94,7 @@ export class ParsedLayersPanel {
     plateDiv.style.cursor = 'pointer';
     plateDiv.style.backgroundColor = this.selectedPlateId === plate.id ? '#e7f3ff' : 'white';
     
-    // Thumbnail (placeholder)
+    // Thumbnail
     const thumbnail = document.createElement('div');
     thumbnail.style.width = '100%';
     thumbnail.style.height = '80px';
@@ -104,13 +104,28 @@ export class ParsedLayersPanel {
     thumbnail.style.display = 'flex';
     thumbnail.style.alignItems = 'center';
     thumbnail.style.justifyContent = 'center';
-    thumbnail.textContent = plate.thumbnail ? '' : 'No thumbnail';
+    thumbnail.style.overflow = 'hidden';
+    thumbnail.style.position = 'relative';
+    
     if (plate.thumbnail) {
       const img = document.createElement('img');
       img.src = plate.thumbnail;
       img.style.maxWidth = '100%';
       img.style.maxHeight = '100%';
+      img.style.objectFit = 'contain';
+      img.style.display = 'block';
+      img.onerror = () => {
+        // Fallback if image fails to load
+        img.style.display = 'none';
+        thumbnail.textContent = 'Failed to load';
+        thumbnail.style.color = '#6c757d';
+        thumbnail.style.fontSize = '12px';
+      };
       thumbnail.appendChild(img);
+    } else {
+      thumbnail.textContent = 'No thumbnail';
+      thumbnail.style.color = '#6c757d';
+      thumbnail.style.fontSize = '12px';
     }
     plateDiv.appendChild(thumbnail);
 

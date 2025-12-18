@@ -139,10 +139,9 @@ export class EngineBridge {
     const urls = printPlates.map(p => p.assets.png!);
     const composed = await this.getOrComposeStackedTexture(`print:${side}`, urls, 'stack');
 
-    // Only apply to material when that side is currently visible (shader uses a single artworkMap)
-    if (currentSide === side) {
-      this.updateMaterialTexture('artwork', composed, side);
-    }
+    // Always apply texture to the appropriate face (front or back)
+    // Shader will use the correct texture based on vFaceType
+    this.updateMaterialTexture('artwork', composed, side);
   }
 
   private async composeAndApplyMask(
@@ -425,8 +424,11 @@ export class EngineBridge {
   ): void {
     switch (type) {
       case 'artwork':
-        if (this.material.uniforms.artworkMap) {
-          this.material.uniforms.artworkMap.value = texture;
+        // Apply artwork texture to the appropriate face (front or back)
+        if (side === 'front' && this.material.uniforms.frontArtworkMap) {
+          this.material.uniforms.frontArtworkMap.value = texture;
+        } else if (side === 'back' && this.material.uniforms.backArtworkMap) {
+          this.material.uniforms.backArtworkMap.value = texture;
         }
         break;
       case 'foil':

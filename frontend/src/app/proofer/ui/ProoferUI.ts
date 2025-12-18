@@ -85,7 +85,8 @@ export class ProoferUI {
 
     // Create material with mask textures
     this.material = MaterialPipeline.createCardMaterial({
-      artwork: artworkTexture,
+      frontArtwork: artworkTexture,
+      backArtwork: artworkTexture, // Will be updated by EngineBridge based on state
       foilMask: foilMask || ResourceManager.createPlaceholderTexture(512, 512, new THREE.Color(0, 0, 0)),
       uvMask: uvMask || ResourceManager.createPlaceholderTexture(512, 512, new THREE.Color(0, 0, 0)),
       embossMask: embossMask || ResourceManager.createPlaceholderTexture(512, 512, new THREE.Color(0, 0, 0)),

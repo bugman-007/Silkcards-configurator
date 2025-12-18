@@ -5,8 +5,9 @@ varying vec3 vNormal;
 varying vec3 vWorldPosition;
 varying float vFaceType;
 
-// Base artwork
-uniform sampler2D artworkMap;
+// Base artwork - separate textures for front and back
+uniform sampler2D frontArtworkMap;
+uniform sampler2D backArtworkMap;
 
 // Base color tint (for stock preview)
 uniform vec3 uBaseColor;
@@ -48,11 +49,21 @@ void main() {
         }
     }
     
-    // Sample base artwork
-    vec4 artworkColor = texture2D(artworkMap, vUv);
+    // Sample base artwork based on face type
+    // vFaceType: 0.0 = front, 1.0 = back, 2.0 = edge
+    vec4 artworkColor;
+    if (vFaceType == 0.0) {
+        // Front face uses front artwork
+        artworkColor = texture2D(frontArtworkMap, vUv);
+    } else if (vFaceType == 1.0) {
+        // Back face uses back artwork
+        artworkColor = texture2D(backArtworkMap, vUv);
+    } else {
+        // Edge faces - use white/edge color
+        artworkColor = vec4(1.0, 1.0, 1.0, 1.0);
+    }
     
     // Determine color based on face type
-    // vFaceType: 0.0 = front, 1.0 = back, 2.0 = edge
     vec3 baseColor;
     if (vFaceType == 2.0) {
         // Edge faces use edge color

@@ -138,13 +138,17 @@ export class ManualOverridePanel {
   private async handleFileUpload(file: File, type: LayerType, side: CardSide): Promise<void> {
     console.log('[Proofer] Manual override upload:', file.name, type, side);
     
+    // Create thumbnail URL from file (for image display)
+    const thumbnailUrl = URL.createObjectURL(file);
+    
     // Create parsed plate from manual upload
     const plate: ParsedPlate = {
       id: `manual-${Date.now()}`,
       type,
       side,
       filename: file.name,
-      file
+      thumbnail: thumbnailUrl, // Object URL for thumbnail display
+      file // File object for actual use
     };
     
     // Add to parsed plates
