@@ -28,6 +28,13 @@ export class MaterialPipeline {
     const frontArtwork = options.frontArtwork || options.artwork || defaultArtwork;
     const backArtwork = options.backArtwork || options.artwork || defaultArtwork;
     
+    // DEBUG: Verify textures are distinct
+    console.log('[MaterialPipeline] Texture UUIDs:', {
+      front: frontArtwork?.uuid,
+      back: backArtwork?.uuid,
+      same: frontArtwork?.uuid === backArtwork?.uuid
+    });
+    
     // Create placeholder masks (black = no effect) if not provided
     const foilMask = options.foilMask || MaterialPipeline.createPlaceholderTexture(512, 512, new THREE.Color(0, 0, 0));
     const uvMask = options.uvMask || MaterialPipeline.createPlaceholderTexture(512, 512, new THREE.Color(0, 0, 0));
@@ -35,6 +42,7 @@ export class MaterialPipeline {
     const dieCutMask = options.dieCutMask || MaterialPipeline.createPlaceholderTexture(512, 512, new THREE.Color(0, 0, 0));
 
     // Create shader material
+    // Note: Three.js automatically maps geometry attributes to shader attributes when names match
     const material = new THREE.ShaderMaterial({
       vertexShader,
       fragmentShader,

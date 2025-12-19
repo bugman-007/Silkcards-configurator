@@ -52,6 +52,18 @@ void main() {
     // Sample base artwork based on face type
     // vFaceType: 0.0 = front, 1.0 = back, 2.0 = edge
     vec4 artworkColor;
+    
+    // DEBUG ISOLATION TEST: Uncomment to verify face detection
+    // Replace texture sampling with solid colors to test vFaceType varying
+    // if (vFaceType == 0.0) {
+    //     artworkColor = vec4(1.0, 0.0, 0.0, 1.0); // RED = front face
+    // } else if (vFaceType == 1.0) {
+    //     artworkColor = vec4(0.0, 0.0, 1.0, 1.0); // BLUE = back face
+    // } else {
+    //     artworkColor = vec4(0.0, 1.0, 0.0, 1.0); // GREEN = edge
+    // }
+    
+    // Production code: Sample textures based on face type
     if (vFaceType == 0.0) {
         // Front face uses front artwork
         artworkColor = texture2D(frontArtworkMap, vUv);

@@ -82,7 +82,7 @@ export class EngineBridge {
     
     console.log('[Proofer] Updating from parser payload');
 
-    // Update option toggles based on assignments
+    // Update option toggle flags first
     MaterialPipeline.updateFoil(this.material, state.optionStates.foil.enabled);
     MaterialPipeline.updateUV(this.material, state.optionStates.uv.enabled);
     
@@ -97,7 +97,29 @@ export class EngineBridge {
     
     MaterialPipeline.updateDieCut(this.material, state.optionStates.diecut.enabled);
 
-    // Load textures from parser payload
+    // Clear masks for disabled options BEFORE loading parser masks
+    // This ensures disabled effects don't show residual textures
+    // Enabled options will have their masks overwritten by parser masks below
+    const blackMask = ResourceManager.createPlaceholderTexture(512, 512, new THREE.Color(0, 0, 0));
+    if (!state.optionStates.foil.enabled) {
+      this.updateMaterialTexture('foil', blackMask);
+      console.log('[EngineBridge] Foil disabled - cleared mask');
+    }
+    if (!state.optionStates.uv.enabled) {
+      this.updateMaterialTexture('uv', blackMask);
+      console.log('[EngineBridge] UV disabled - cleared mask');
+    }
+    if (!state.optionStates.emboss.enabled) {
+      this.updateMaterialTexture('emboss', blackMask);
+      console.log('[EngineBridge] Emboss disabled - cleared mask');
+    }
+    if (!state.optionStates.diecut.enabled) {
+      this.updateMaterialTexture('diecut', blackMask);
+      console.log('[EngineBridge] Diecut disabled - cleared mask');
+    }
+
+    // Load and apply textures from parser payload
+    // This will apply parser masks when enabled, or leave black placeholders when disabled/missing
     await this.loadTexturesFromParserPayload(payload, state);
   }
 
@@ -112,6 +134,7 @@ export class EngineBridge {
     await this.composeAndApplyPrint(payload, 'back', currentSide);
 
     // Masks: union/max across all depths (single-mask shader constraint)
+    // Always compose for both sides - shader selects based on vFaceType
     await this.composeAndApplyMask(payload, 'FOIL_MASK', 'foil', 'front', currentSide, state);
     await this.composeAndApplyMask(payload, 'FOIL_MASK', 'foil', 'back', currentSide, state);
 
@@ -122,22 +145,36 @@ export class EngineBridge {
     await this.composeAndApplyEmboss(payload, 'back', currentSide, state);
 
     // Die-cut: prefer mask plates; SVG is preserved in meta but not used by current shader pipeline
-    await this.composeAndApplyMask(payload, 'DIECUT_MASK', 'diecut', state.optionStates.diecut.side, currentSide, state);
+    // Apply to both sides when enabled
+    if (state.optionStates.diecut.enabled) {
+      await this.composeAndApplyMask(payload, 'DIECUT_MASK', 'diecut', 'front', currentSide, state);
+      await this.composeAndApplyMask(payload, 'DIECUT_MASK', 'diecut', 'back', currentSide, state);
+    } else {
+      // Disable diecut on both sides with black mask
+      const blackMask = ResourceManager.createPlaceholderTexture(512, 512, new THREE.Color(0, 0, 0));
+      this.updateMaterialTexture('diecut', blackMask, 'front');
+      this.updateMaterialTexture('diecut', blackMask, 'back');
+    }
   }
 
   private getPlatesSorted(payload: ParserPayload, side: 'front' | 'back', type: string): ParserPlate[] {
     return payload.plates
-      .filter(p => p.side === side && p.type === (type as any))
+      .filter(p => (p.face ?? p.side) === side && p.type === (type as any))
       .slice()
       .sort((a, b) => (a.depthIndex ?? 0) - (b.depthIndex ?? 0) || a.id.localeCompare(b.id));
   }
 
-  private async composeAndApplyPrint(payload: ParserPayload, side: 'front' | 'back', currentSide: 'front' | 'back'): Promise<void> {
+  private async composeAndApplyPrint(payload: ParserPayload, side: 'front' | 'back', _currentSide: 'front' | 'back'): Promise<void> {
     const printPlates = this.getPlatesSorted(payload, side, 'PRINT').filter(p => !!p.assets.png);
-    if (printPlates.length === 0) return;
+    if (printPlates.length === 0) {
+      console.log(`[EngineBridge] No PRINT plates found for side: ${side}`);
+      return;
+    }
 
     const urls = printPlates.map(p => p.assets.png!);
+    console.log(`[EngineBridge] Composing print for ${side}:`, urls.length, 'layers');
     const composed = await this.getOrComposeStackedTexture(`print:${side}`, urls, 'stack');
+    console.log(`[EngineBridge] Composed texture UUID for ${side}:`, composed?.uuid);
 
     // Always apply texture to the appropriate face (front or back)
     // Shader will use the correct texture based on vFaceType
@@ -149,21 +186,39 @@ export class EngineBridge {
     plateType: string,
     target: 'foil' | 'uv' | 'diecut',
     side: 'front' | 'back',
-    currentSide: 'front' | 'back',
+    _currentSide: 'front' | 'back', // Not used - masks applied based on optionState.side
     state: ProoferState
   ): Promise<void> {
     const plates = this.getPlatesSorted(payload, side, plateType).filter(p => !!p.assets.maskPng);
-    if (plates.length === 0) return;
-
-    const urls = plates.map(p => p.assets.maskPng!);
-    const composed = await this.getOrComposeStackedTexture(`mask:${plateType}:${side}`, urls, 'max');
-
+    
     const optionState =
       target === 'foil' ? state.optionStates.foil :
       target === 'uv' ? state.optionStates.uv :
       state.optionStates.diecut;
 
-    if (currentSide === side && optionState.enabled && optionState.side === side) {
+    // If no parser masks exist for this effect/side, use black placeholder (no effect)
+    // DO NOT fall back to demo masks - parser is source of truth
+    if (plates.length === 0) {
+      // Only apply black placeholder if this is the enabled side
+      // Masks are global uniforms (one per effect type), so apply for enabled side only
+      if (optionState.enabled && optionState.side === side) {
+        console.log(`[EngineBridge] No ${target} parser mask found for ${side}, using black placeholder (no effect)`);
+        const blackMask = ResourceManager.createPlaceholderTexture(512, 512, new THREE.Color(0, 0, 0));
+        this.updateMaterialTexture(target, blackMask, side);
+      }
+      return;
+    }
+
+    const urls = plates.map(p => p.assets.maskPng!);
+    console.log(`[EngineBridge] Composing ${target} parser mask for ${side}:`, urls.length, 'layers');
+    const composed = await this.getOrComposeStackedTexture(`mask:${plateType}:${side}`, urls, 'max');
+    console.log(`[EngineBridge] Composed ${target} parser mask UUID for ${side}:`, composed?.uuid);
+
+    // Apply parser mask when enabled and this is the enabled side
+    // Masks are global uniforms (one per effect type), so we apply the mask for the enabled side
+    // Shader uses the same mask for both faces, but the effect is controlled by enabled flag
+    if (optionState.enabled && optionState.side === side) {
+      console.log(`[EngineBridge] Applying ${target} parser mask for enabled side: ${side}`);
       this.updateMaterialTexture(target, composed, side);
     }
   }
@@ -171,21 +226,42 @@ export class EngineBridge {
   private async composeAndApplyEmboss(
     payload: ParserPayload,
     side: 'front' | 'back',
-    currentSide: 'front' | 'back',
+    _currentSide: 'front' | 'back', // Not used - masks applied based on optionState.side
     state: ProoferState
   ): Promise<void> {
     const plates = this.getPlatesSorted(payload, side, 'EMBOSS');
-    if (plates.length === 0) return;
+    
+    // If no parser emboss maps exist for this side, use black placeholder (no effect)
+    // DO NOT fall back to demo masks - parser is source of truth
+    if (plates.length === 0) {
+      if (state.optionStates.emboss.enabled && state.optionStates.emboss.side === side) {
+        console.log(`[EngineBridge] No emboss map found for ${side}, using black placeholder (effect disabled)`);
+        const blackMask = ResourceManager.createPlaceholderTexture(512, 512, new THREE.Color(0, 0, 0));
+        this.updateMaterialTexture('emboss', blackMask, side);
+      }
+      return;
+    }
 
     // Prefer height maps if present; otherwise merge masks.
     const heightUrls = plates.map(p => p.assets.heightPng).filter(Boolean) as string[];
     const maskUrls = plates.map(p => p.assets.maskPng).filter(Boolean) as string[];
     const urls = heightUrls.length > 0 ? heightUrls : maskUrls;
-    if (urls.length === 0) return;
+    if (urls.length === 0) {
+      if (state.optionStates.emboss.enabled && state.optionStates.emboss.side === side) {
+        console.log(`[EngineBridge] No emboss assets found for ${side}, using black placeholder`);
+        const blackMask = ResourceManager.createPlaceholderTexture(512, 512, new THREE.Color(0, 0, 0));
+        this.updateMaterialTexture('emboss', blackMask, side);
+      }
+      return;
+    }
 
+    console.log(`[EngineBridge] Composing emboss for ${side}:`, urls.length, 'layers', heightUrls.length > 0 ? '(height maps)' : '(masks)');
     const composed = await this.getOrComposeStackedTexture(`emboss:${side}:${heightUrls.length > 0 ? 'height' : 'mask'}`, urls, 'max');
+    console.log(`[EngineBridge] Composed emboss UUID for ${side}:`, composed?.uuid);
 
-    if (currentSide === side && state.optionStates.emboss.enabled && state.optionStates.emboss.side === side) {
+    // Always apply parser emboss maps when enabled and side matches
+    // Shader will use correct texture based on vFaceType
+    if (state.optionStates.emboss.enabled && state.optionStates.emboss.side === side) {
       this.updateMaterialTexture('emboss', composed, side);
     }
   }
@@ -426,29 +502,54 @@ export class EngineBridge {
       case 'artwork':
         // Apply artwork texture to the appropriate face (front or back)
         if (side === 'front' && this.material.uniforms.frontArtworkMap) {
+          console.log('[EngineBridge] Setting frontArtworkMap:', texture?.uuid, 'side:', side);
+          // Set texture and mark for update
+          texture.needsUpdate = true;
           this.material.uniforms.frontArtworkMap.value = texture;
+          this.material.needsUpdate = true;
         } else if (side === 'back' && this.material.uniforms.backArtworkMap) {
+          console.log('[EngineBridge] Setting backArtworkMap:', texture?.uuid, 'side:', side);
+          // Set texture and mark for update
+          texture.needsUpdate = true;
           this.material.uniforms.backArtworkMap.value = texture;
+          this.material.needsUpdate = true;
+        } else {
+          console.warn('[EngineBridge] Invalid artwork update - side:', side, 'uniforms available:', {
+            front: !!this.material.uniforms.frontArtworkMap,
+            back: !!this.material.uniforms.backArtworkMap
+          });
         }
         break;
       case 'foil':
         if (this.material.uniforms.foilMask) {
+          console.log('[EngineBridge] Setting foilMask:', texture?.uuid, 'side:', side || 'global');
+          texture.needsUpdate = true;
           this.material.uniforms.foilMask.value = texture;
+          this.material.needsUpdate = true;
         }
         break;
       case 'uv':
         if (this.material.uniforms.uvMask) {
+          console.log('[EngineBridge] Setting uvMask:', texture?.uuid, 'side:', side || 'global');
+          texture.needsUpdate = true;
           this.material.uniforms.uvMask.value = texture;
+          this.material.needsUpdate = true;
         }
         break;
       case 'emboss':
         if (this.material.uniforms.embossMask) {
+          console.log('[EngineBridge] Setting embossMask:', texture?.uuid, 'side:', side || 'global');
+          texture.needsUpdate = true;
           this.material.uniforms.embossMask.value = texture;
+          this.material.needsUpdate = true;
         }
         break;
       case 'diecut':
         if (this.material.uniforms.dieCutMask) {
+          console.log('[EngineBridge] Setting dieCutMask:', texture?.uuid, 'side:', side || 'global');
+          texture.needsUpdate = true;
           this.material.uniforms.dieCutMask.value = texture;
+          this.material.needsUpdate = true;
         }
         break;
     }

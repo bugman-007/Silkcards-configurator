@@ -179,6 +179,19 @@ export class CardGeometry {
       this._geometry.setAttribute('uv', newAttr);
     }
 
+    // Rotate UVs 90° clockwise to match portrait artwork orientation
+    // This fixes the mismatch where geometry is portrait but UVs were landscape
+    const finalUvAttr = this._geometry.getAttribute('uv') as THREE.BufferAttribute;
+    if (finalUvAttr) {
+      for (let i = 0; i < finalUvAttr.count; i++) {
+        const u = finalUvAttr.getX(i);
+        const v = finalUvAttr.getY(i);
+        // Rotate 90° clockwise: (u, v) -> (v, 1.0 - u)
+        finalUvAttr.setXY(i, v, 1.0 - u);
+      }
+      finalUvAttr.needsUpdate = true;
+    }
+
     // Update or recreate faceType attribute
     if (faceTypeAttr && faceTypeAttr.count === vertexCount) {
       (faceTypeAttr.array as Float32Array).set(faceTypeArray);

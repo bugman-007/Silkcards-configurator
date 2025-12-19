@@ -60,14 +60,10 @@ export class ProoferUI {
     // Initialize ResourceManager
     await ResourceManager.init();
 
-    // Load finish masks
-    await ResourceManager.loadFinishMasks();
-
-    // Get mask textures
-    const foilMask = ResourceManager.getMaskTexture('foil');
-    const uvMask = ResourceManager.getMaskTexture('uv');
-    const embossMask = ResourceManager.getMaskTexture('emboss');
-    const dieCutMask = ResourceManager.getMaskTexture('diecut');
+    // Start with black placeholder masks (no effect)
+    // Parser masks will override these when payload is loaded
+    // DO NOT load demo masks - parser is the source of truth
+    const blackMask = ResourceManager.createPlaceholderTexture(512, 512, new THREE.Color(0, 0, 0));
 
     // Start with white texture (will be updated by EngineBridge from state)
     const artworkTexture = ResourceManager.createPlaceholderTexture(512, 512, new THREE.Color(1.0, 1.0, 1.0));
@@ -83,18 +79,34 @@ export class ProoferUI {
       cornerRadius: state.cornerRadius
     });
 
-    // Create material with mask textures
+    // Create material with black placeholder masks (will be replaced by parser masks)
+    // Parser masks are the source of truth - never use demo/preset masks
     this.material = MaterialPipeline.createCardMaterial({
       frontArtwork: artworkTexture,
       backArtwork: artworkTexture, // Will be updated by EngineBridge based on state
-      foilMask: foilMask || ResourceManager.createPlaceholderTexture(512, 512, new THREE.Color(0, 0, 0)),
-      uvMask: uvMask || ResourceManager.createPlaceholderTexture(512, 512, new THREE.Color(0, 0, 0)),
-      embossMask: embossMask || ResourceManager.createPlaceholderTexture(512, 512, new THREE.Color(0, 0, 0)),
-      dieCutMask: dieCutMask || ResourceManager.createPlaceholderTexture(512, 512, new THREE.Color(0, 0, 0))
+      foilMask: blackMask,
+      uvMask: blackMask,
+      embossMask: blackMask,
+      dieCutMask: blackMask
     });
 
     // Create mesh and add to scene
     this.cardMesh = new THREE.Mesh(this.cardGeometry.geometry, this.material);
+    
+    // DEBUG: Verify geometry has faceType attribute
+    const faceTypeAttr = this.cardGeometry.geometry.getAttribute('faceType');
+    if (faceTypeAttr) {
+      const faceTypeArray = faceTypeAttr.array as Float32Array;
+      const uniqueValues = new Set(Array.from(faceTypeArray));
+      console.log('[ProoferUI] Geometry faceType attribute:', {
+        count: faceTypeAttr.count,
+        uniqueValues: Array.from(uniqueValues),
+        sampleValues: Array.from(faceTypeArray.slice(0, 10))
+      });
+    } else {
+      console.error('[ProoferUI] WARNING: Geometry missing faceType attribute!');
+    }
+    
     this.engineController.add(this.cardMesh);
 
     // Start render loop

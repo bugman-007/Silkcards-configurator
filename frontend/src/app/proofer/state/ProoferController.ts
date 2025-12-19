@@ -231,7 +231,7 @@ export class ProoferController {
       return {
         id: plate.id,
         type: layerType,
-        side: plate.side,
+        side: (plate.face ?? plate.side),
         filename: plate.aiLayerName,
         thumbnail: thumbnailUrl, // PNG URL for thumbnail display
         file: assetUrl // Store URL string for actual use
@@ -255,7 +255,7 @@ export class ProoferController {
     
     // Find front base print (side=front, type=PRINT, depthIndex=0)
     const printFront = plates.find(p => 
-      p.side === 'front' && p.type === 'PRINT' && p.depthIndex === 0
+      (p.face ?? p.side) === 'front' && p.type === 'PRINT' && p.depthIndex === 0
     );
     if (printFront) {
       this.state.plateAssignments[printFront.id] = { type: 'artwork', side: 'front' };
@@ -264,7 +264,7 @@ export class ProoferController {
     
     // Find back base print (side=back, type=PRINT, depthIndex=0)
     const printBack = plates.find(p => 
-      p.side === 'back' && p.type === 'PRINT' && p.depthIndex === 0
+      (p.face ?? p.side) === 'back' && p.type === 'PRINT' && p.depthIndex === 0
     );
     if (printBack) {
       this.state.plateAssignments[printBack.id] = { type: 'artwork', side: 'back' };
@@ -273,7 +273,7 @@ export class ProoferController {
     
     // Find foil masks
     const foilFront = plates.find(p => 
-      p.side === 'front' && p.type === 'FOIL_MASK' && p.depthIndex === 0
+      (p.face ?? p.side) === 'front' && p.type === 'FOIL_MASK' && p.depthIndex === 0
     );
     if (foilFront) {
       this.state.optionStates.foil.enabled = true;
@@ -283,7 +283,7 @@ export class ProoferController {
     }
     
     const foilBack = plates.find(p => 
-      p.side === 'back' && p.type === 'FOIL_MASK' && p.depthIndex === 0
+      (p.face ?? p.side) === 'back' && p.type === 'FOIL_MASK' && p.depthIndex === 0
     );
     if (foilBack) {
       this.state.optionStates.foil.enabled = true;
@@ -294,7 +294,7 @@ export class ProoferController {
     
     // Find UV masks
     const uvFront = plates.find(p => 
-      p.side === 'front' && p.type === 'SPOT_UV_MASK' && p.depthIndex === 0
+      (p.face ?? p.side) === 'front' && p.type === 'SPOT_UV_MASK' && p.depthIndex === 0
     );
     if (uvFront) {
       this.state.optionStates.uv.enabled = true;
@@ -304,7 +304,7 @@ export class ProoferController {
     }
     
     const uvBack = plates.find(p => 
-      p.side === 'back' && p.type === 'SPOT_UV_MASK' && p.depthIndex === 0
+      (p.face ?? p.side) === 'back' && p.type === 'SPOT_UV_MASK' && p.depthIndex === 0
     );
     if (uvBack) {
       this.state.optionStates.uv.enabled = true;
@@ -315,7 +315,7 @@ export class ProoferController {
     
     // Find emboss
     const embossFront = plates.find(p => 
-      p.side === 'front' && p.type === 'EMBOSS' && p.depthIndex === 0
+      (p.face ?? p.side) === 'front' && p.type === 'EMBOSS' && p.depthIndex === 0
     );
     if (embossFront) {
       this.state.optionStates.emboss.enabled = true;
@@ -325,7 +325,7 @@ export class ProoferController {
     }
     
     const embossBack = plates.find(p => 
-      p.side === 'back' && p.type === 'EMBOSS' && p.depthIndex === 0
+      (p.face ?? p.side) === 'back' && p.type === 'EMBOSS' && p.depthIndex === 0
     );
     if (embossBack) {
       this.state.optionStates.emboss.enabled = true;
