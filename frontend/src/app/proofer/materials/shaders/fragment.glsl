@@ -21,6 +21,16 @@ uniform sampler2D uvMask;
 uniform sampler2D embossMask;
 uniform sampler2D dieCutMask;
 
+// UV transforms for cropped masks (offset and scale in card UV space)
+uniform vec2 foilUvOffset;
+uniform vec2 foilUvScale;
+uniform vec2 uvUvOffset;
+uniform vec2 uvUvScale;
+uniform vec2 embossUvOffset;
+uniform vec2 embossUvScale;
+uniform vec2 dieCutUvOffset;
+uniform vec2 dieCutUvScale;
+
 // Finish toggles (boolean flags)
 uniform bool foilEnabled;
 uniform bool uvEnabled;
@@ -35,13 +45,34 @@ uniform vec3 uLightColor;
 uniform vec3 uAmbientColor;
 uniform vec3 uCameraPosition;
 
+/**
+ * Sample a cropped texture with UV transform
+ * @param tex - Texture sampler
+ * @param uv - Card UV coordinates (0-1 across full card)
+ * @param offset - UV offset (rectPx.x0/cardWidth, rectPx.y0/cardHeight)
+ * @param scale - UV scale (sizePx.w/cardWidth, sizePx.h/cardHeight)
+ * @returns Sampled color, or vec4(0.0) if UV is outside cropped bounds
+ */
+vec4 sampleCropped(sampler2D tex, vec2 uv, vec2 offset, vec2 scale) {
+    // Transform card UV to local texture UV
+    vec2 localUV = (uv - offset) / scale;
+    
+    // Check if UV is within cropped bounds
+    if (localUV.x < 0.0 || localUV.x > 1.0 || localUV.y < 0.0 || localUV.y > 1.0) {
+        return vec4(0.0); // Outside bounds = no effect
+    }
+    
+    return texture2D(tex, localUV);
+}
+
 void main() {
     // --- Die-cut discard ---
     // Must execute before any color accumulation
     if (dieCutEnabled) {
         // Flip UV horizontally: (1.0 - vUv.x, vUv.y)
         vec2 dieCutUv = vec2(1.0 - vUv.x, vUv.y);
-        float cutVal = texture2D(dieCutMask, dieCutUv).r;
+        vec4 dieCutTex = sampleCropped(dieCutMask, dieCutUv, dieCutUvOffset, dieCutUvScale);
+        float cutVal = dieCutTex.r;
         
         // White (1.0) = hole → discard fragment
         if (cutVal > 0.5) {
@@ -64,10 +95,10 @@ void main() {
     // }
     
     // Production code: Sample textures based on face type
-    if (vFaceType == 0.0) {
+    if (vFaceType < 0.5) {
         // Front face uses front artwork
         artworkColor = texture2D(frontArtworkMap, vUv);
-    } else if (vFaceType == 1.0) {
+    } else if (vFaceType < 1.5) {
         // Back face uses back artwork
         artworkColor = texture2D(backArtworkMap, vUv);
     } else {
@@ -95,14 +126,18 @@ void main() {
     
     // Apply emboss/deboss normal perturbation on front or back face
     if ((vFaceType == 0.0 || vFaceType == 1.0) && embossEnabled) {
-        float h = texture2D(embossMask, vUv).r;
+        vec4 embossTex = sampleCropped(embossMask, vUv, embossUvOffset, embossUvScale);
+        float h = embossTex.r;
         embossHeight = h;
         
         // texel size — adjust according to your actual mask resolution
+        // Use card UV space for texel calculation
         vec2 texel = vec2(1.0 / 1024.0, 1.0 / 1024.0);
         
-        float hR = texture2D(embossMask, vUv + vec2(texel.x, 0.0)).r;
-        float hU = texture2D(embossMask, vUv + vec2(0.0, texel.y)).r;
+        vec4 embossTexR = sampleCropped(embossMask, vUv + vec2(texel.x, 0.0), embossUvOffset, embossUvScale);
+        vec4 embossTexU = sampleCropped(embossMask, vUv + vec2(0.0, texel.y), embossUvOffset, embossUvScale);
+        float hR = embossTexR.r;
+        float hU = embossTexU.r;
         
         float dHx = (hR - h) * embossMode;
         float dHy = (hU - h) * embossMode;
@@ -155,7 +190,8 @@ void main() {
         
         // Apply foil effect (mask-driven metallic BRDF)
         if (foilEnabled) {
-            float foilMaskValue = texture2D(foilMask, vUv).r;
+            vec4 foilTex = sampleCropped(foilMask, vUv, foilUvOffset, foilUvScale);
+            float foilMaskValue = foilTex.r;
             if (foilMaskValue > 0.5) {
                 // Metallic foil color (gold)
                 vec3 foilColor = vec3(0.9, 0.75, 0.4);
@@ -173,7 +209,8 @@ void main() {
         
         // Apply UV gloss effect (mask-driven clearcoat) - uses perturbed normal
         if (uvEnabled) {
-            float uvMaskValue = texture2D(uvMask, vUv).r;
+            vec4 uvTex = sampleCropped(uvMask, vUv, uvUvOffset, uvUvScale);
+            float uvMaskValue = uvTex.r;
             if (uvMaskValue > 0.01) {
                 vec3 halfDir = normalize(lightDir + viewDir);
                 

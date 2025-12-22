@@ -124,36 +124,152 @@ export class EngineBridge {
   }
 
   /**
+   * Compute card size in pixels from PRINT plates
+   * Uses rectPx/sizePx from PRINT plates, or falls back to union of all plates
+   */
+  private computeCardSizePx(payload: ParserPayload): { widthPx: number; heightPx: number } {
+    // Try to get size from PRINT plates first (preferred)
+    const printPlates = payload.plates.filter(p => p.type === 'PRINT');
+    
+    if (printPlates.length > 0) {
+      // Use the first PRINT plate's rectPx/sizePx (all PRINT plates should span full card)
+      const firstPrint = printPlates[0];
+      if (firstPrint.rectPx && firstPrint.sizePx) {
+        // Card size = union of all PRINT plates (should be same, but take max to be safe)
+        let maxX1 = 0;
+        let maxY1 = 0;
+        
+        for (const plate of printPlates) {
+          if (plate.rectPx) {
+            maxX1 = Math.max(maxX1, plate.rectPx.x1);
+            maxY1 = Math.max(maxY1, plate.rectPx.y1);
+          }
+        }
+        
+        if (maxX1 > 0 && maxY1 > 0) {
+          console.log(`[EngineBridge] Card size from PRINT plates: ${maxX1}x${maxY1} px`);
+          return { widthPx: maxX1, heightPx: maxY1 };
+        }
+      }
+    }
+    
+    // Fallback: compute union of all plates
+    let minX0 = Infinity;
+    let minY0 = Infinity;
+    let maxX1 = -Infinity;
+    let maxY1 = -Infinity;
+    
+    for (const plate of payload.plates) {
+      if (plate.rectPx) {
+        minX0 = Math.min(minX0, plate.rectPx.x0);
+        minY0 = Math.min(minY0, plate.rectPx.y0);
+        maxX1 = Math.max(maxX1, plate.rectPx.x1);
+        maxY1 = Math.max(maxY1, plate.rectPx.y1);
+      }
+    }
+    
+    if (maxX1 > 0 && maxY1 > 0) {
+      const widthPx = maxX1 - minX0;
+      const heightPx = maxY1 - minY0;
+      console.log(`[EngineBridge] Card size from plate union: ${widthPx}x${heightPx} px`);
+      return { widthPx, heightPx };
+    }
+    
+    // Last resort: use DPI and card dimensions in mm
+    const dpi = payload.dpi || payload.card.dpi || 600;
+    const widthMm = payload.card.size.widthMm;
+    const heightMm = payload.card.size.heightMm;
+    const widthPx = Math.round((widthMm / 25.4) * dpi);
+    const heightPx = Math.round((heightMm / 25.4) * dpi);
+    
+    console.log(`[EngineBridge] Card size from DPI/MM: ${widthPx}x${heightPx} px (${dpi} DPI, ${widthMm}x${heightMm}mm)`);
+    return { widthPx, heightPx };
+  }
+
+  /**
+   * Compute UV transform for a cropped texture
+   * @param rectPx - Bounding box in card pixel coordinates (top-left origin)
+   * @param sizePx - Size of cropped texture
+   * @param cardWidthPx - Full card width in pixels
+   * @param cardHeightPx - Full card height in pixels
+   * @returns UV offset and scale
+   * 
+   * Card space: (0,0) = top-left, Y increases downward
+   * UV space: (0,0) = bottom-left, Y increases upward
+   * 
+   * Transform: cardUV -> localUV = (cardUV - offset) / scale
+   * where offset = (x0/cardW, 1.0 - y1/cardH) [flip Y]
+   * and scale = (sizeW/cardW, sizeH/cardH)
+   */
+  private computeUvTransform(
+    rectPx: { x0: number; y0: number; x1: number; y1: number } | undefined,
+    sizePx: { w: number; h: number } | undefined,
+    cardWidthPx: number,
+    cardHeightPx: number
+  ): { offset: THREE.Vector2; scale: THREE.Vector2 } {
+    if (!rectPx || !sizePx || cardWidthPx <= 0 || cardHeightPx <= 0) {
+      // No cropping info or invalid card size - use full card (no transform)
+      return {
+        offset: new THREE.Vector2(0.0, 0.0),
+        scale: new THREE.Vector2(1.0, 1.0)
+      };
+    }
+    
+    // UV offset = (x0 / cardWidth, 1.0 - y0 / cardHeight)
+    // Y flip: card space y0 (top) -> UV space (1.0 - y0/cardH) (top in UV, but UV Y increases upward)
+    // In UV space: (0,0) = bottom-left, (1,1) = top-right
+    // Card space: (0,0) = top-left, Y increases downward
+    // So card y0 (top) maps to UV (1.0 - y0/cardH) (top in UV)
+    const offset = new THREE.Vector2(
+      rectPx.x0 / cardWidthPx,
+      1.0 - (rectPx.y0 / cardHeightPx) // Flip Y: y0 is top in card space, maps to top in UV
+    );
+    
+    // UV scale = (sizeW / cardWidth, sizeH / cardHeight)
+    const scale = new THREE.Vector2(
+      sizePx.w / cardWidthPx,
+      sizePx.h / cardHeightPx
+    );
+    
+    return { offset, scale };
+  }
+
+  /**
    * Load textures from parser payload
    */
   private async loadTexturesFromParserPayload(payload: ParserPayload, state: ProoferState): Promise<void> {
     const currentSide = state.viewSide;
+    
+    // Compute card size in pixels (needed for UV transforms)
+    const cardSize = this.computeCardSizePx(payload);
 
     // PRINT: stack/composite all print plates for each side, sorted by depthIndex
-    await this.composeAndApplyPrint(payload, 'front', currentSide);
-    await this.composeAndApplyPrint(payload, 'back', currentSide);
+    await this.composeAndApplyPrint(payload, 'front', currentSide, cardSize);
+    await this.composeAndApplyPrint(payload, 'back', currentSide, cardSize);
 
     // Masks: union/max across all depths (single-mask shader constraint)
     // Always compose for both sides - shader selects based on vFaceType
-    await this.composeAndApplyMask(payload, 'FOIL_MASK', 'foil', 'front', currentSide, state);
-    await this.composeAndApplyMask(payload, 'FOIL_MASK', 'foil', 'back', currentSide, state);
+    await this.composeAndApplyMask(payload, 'FOIL_MASK', 'foil', 'front', currentSide, state, cardSize);
+    await this.composeAndApplyMask(payload, 'FOIL_MASK', 'foil', 'back', currentSide, state, cardSize);
 
-    await this.composeAndApplyMask(payload, 'SPOT_UV_MASK', 'uv', 'front', currentSide, state);
-    await this.composeAndApplyMask(payload, 'SPOT_UV_MASK', 'uv', 'back', currentSide, state);
+    await this.composeAndApplyMask(payload, 'SPOT_UV_MASK', 'uv', 'front', currentSide, state, cardSize);
+    await this.composeAndApplyMask(payload, 'SPOT_UV_MASK', 'uv', 'back', currentSide, state, cardSize);
 
-    await this.composeAndApplyEmboss(payload, 'front', currentSide, state);
-    await this.composeAndApplyEmboss(payload, 'back', currentSide, state);
+    await this.composeAndApplyEmboss(payload, 'front', currentSide, state, cardSize);
+    await this.composeAndApplyEmboss(payload, 'back', currentSide, state, cardSize);
 
     // Die-cut: prefer mask plates; SVG is preserved in meta but not used by current shader pipeline
     // Apply to both sides when enabled
     if (state.optionStates.diecut.enabled) {
-      await this.composeAndApplyMask(payload, 'DIECUT_MASK', 'diecut', 'front', currentSide, state);
-      await this.composeAndApplyMask(payload, 'DIECUT_MASK', 'diecut', 'back', currentSide, state);
+      await this.composeAndApplyMask(payload, 'DIECUT_MASK', 'diecut', 'front', currentSide, state, cardSize);
+      await this.composeAndApplyMask(payload, 'DIECUT_MASK', 'diecut', 'back', currentSide, state, cardSize);
     } else {
       // Disable diecut on both sides with black mask
       const blackMask = ResourceManager.createPlaceholderTexture(512, 512, new THREE.Color(0, 0, 0));
       this.updateMaterialTexture('diecut', blackMask, 'front');
       this.updateMaterialTexture('diecut', blackMask, 'back');
+      // Reset UV transform to full card (no cropping)
+      this.updateMaskUvTransform('diecut', new THREE.Vector2(0, 0), new THREE.Vector2(1, 1));
     }
   }
 
@@ -164,18 +280,52 @@ export class EngineBridge {
       .sort((a, b) => (a.depthIndex ?? 0) - (b.depthIndex ?? 0) || a.id.localeCompare(b.id));
   }
 
-  private async composeAndApplyPrint(payload: ParserPayload, side: 'front' | 'back', _currentSide: 'front' | 'back'): Promise<void> {
-    const printPlates = this.getPlatesSorted(payload, side, 'PRINT').filter(p => !!p.assets.png);
+  private async composeAndApplyPrint(
+    payload: ParserPayload,
+    side: 'front' | 'back',
+    _currentSide: 'front' | 'back',
+    cardSize: { widthPx: number; heightPx: number }
+  ): Promise<void> {
+    // Use file field if available, otherwise fall back to assets.png
+    const printPlates = this.getPlatesSorted(payload, side, 'PRINT').filter(p => {
+      // New format: use file field
+      if (p.file) return true;
+      // Legacy format: use assets.png
+      return !!p.assets.png;
+    });
+    
     if (printPlates.length === 0) {
       console.log(`[EngineBridge] No PRINT plates found for side: ${side}`);
       return;
     }
 
-    const urls = printPlates.map(p => p.assets.png!);
+    // Build URLs: prefer file field, fall back to assets.png
+    const urls = printPlates.map(p => {
+      if (p.file) {
+        // file might be a full URL or relative path
+        if (p.file.startsWith('http://') || p.file.startsWith('https://')) {
+          return p.file; // Already a full URL
+        }
+        // Relative path: use proxy in production (HTTPS), direct URL in development
+        const isProduction = window.location.protocol === 'https:';
+        const envBaseUrl = import.meta.env.VITE_PARSER_BASE_URL;
+        const useProxy = isProduction && (!envBaseUrl || envBaseUrl.startsWith('http://'));
+        
+        if (useProxy) {
+          return `/api/parser-proxy/output/${p.file}`;
+        } else {
+          const baseUrl = envBaseUrl || 'http://localhost:8080';
+          return `${baseUrl}/output/${p.file}`;
+        }
+      }
+      return p.assets.png!;
+    });
+    
     console.log(`[EngineBridge] Composing print for ${side}:`, urls.length, 'layers');
     const composed = await this.getOrComposeStackedTexture(`print:${side}`, urls, 'stack');
     console.log(`[EngineBridge] Composed texture UUID for ${side}:`, composed?.uuid);
 
+    // PRINT textures are full-card size, so no UV transform needed (offset=0,0, scale=1,1)
     // Always apply texture to the appropriate face (front or back)
     // Shader will use the correct texture based on vFaceType
     this.updateMaterialTexture('artwork', composed, side);
@@ -187,9 +337,16 @@ export class EngineBridge {
     target: 'foil' | 'uv' | 'diecut',
     side: 'front' | 'back',
     _currentSide: 'front' | 'back', // Not used - masks applied based on optionState.side
-    state: ProoferState
+    state: ProoferState,
+    cardSize: { widthPx: number; heightPx: number }
   ): Promise<void> {
-    const plates = this.getPlatesSorted(payload, side, plateType).filter(p => !!p.assets.maskPng);
+    // Use file field if available, otherwise fall back to assets.maskPng
+    const plates = this.getPlatesSorted(payload, side, plateType).filter(p => {
+      // New format: use file field
+      if (p.file) return true;
+      // Legacy format: use assets.maskPng
+      return !!p.assets.maskPng;
+    });
     
     const optionState =
       target === 'foil' ? state.optionStates.foil :
@@ -205,14 +362,54 @@ export class EngineBridge {
         console.log(`[EngineBridge] No ${target} parser mask found for ${side}, using black placeholder (no effect)`);
         const blackMask = ResourceManager.createPlaceholderTexture(512, 512, new THREE.Color(0, 0, 0));
         this.updateMaterialTexture(target, blackMask, side);
+        // Reset UV transform to full card (no cropping)
+        this.updateMaskUvTransform(target, new THREE.Vector2(0, 0), new THREE.Vector2(1, 1));
       }
       return;
     }
 
-    const urls = plates.map(p => p.assets.maskPng!);
+    // Build URLs: prefer file field, fall back to assets.maskPng
+    const urls = plates.map(p => {
+      if (p.file) {
+        // file might be a full URL or relative path
+        if (p.file.startsWith('http://') || p.file.startsWith('https://')) {
+          return p.file; // Already a full URL
+        }
+        // Relative path: use proxy in production (HTTPS), direct URL in development
+        const isProduction = window.location.protocol === 'https:';
+        const envBaseUrl = import.meta.env.VITE_PARSER_BASE_URL;
+        const useProxy = isProduction && (!envBaseUrl || envBaseUrl.startsWith('http://'));
+        
+        if (useProxy) {
+          return `/api/parser-proxy/output/${p.file}`;
+        } else {
+          const baseUrl = envBaseUrl || 'http://localhost:8080';
+          return `${baseUrl}/output/${p.file}`;
+        }
+      }
+      return p.assets.maskPng!;
+    });
+    
     console.log(`[EngineBridge] Composing ${target} parser mask for ${side}:`, urls.length, 'layers');
     const composed = await this.getOrComposeStackedTexture(`mask:${plateType}:${side}`, urls, 'max');
     console.log(`[EngineBridge] Composed ${target} parser mask UUID for ${side}:`, composed?.uuid);
+
+    // Compute UV transform from first plate's rectPx/sizePx
+    // All plates of same type/side should have same rectPx (union is done in composition)
+    const firstPlate = plates[0];
+    const uvTransform = this.computeUvTransform(
+      firstPlate.rectPx,
+      firstPlate.sizePx,
+      cardSize.widthPx,
+      cardSize.heightPx
+    );
+    
+    console.log(`[EngineBridge] ${target} UV transform for ${side}:`, {
+      offset: uvTransform.offset,
+      scale: uvTransform.scale,
+      rectPx: firstPlate.rectPx,
+      sizePx: firstPlate.sizePx
+    });
 
     // Apply parser mask when enabled and this is the enabled side
     // Masks are global uniforms (one per effect type), so we apply the mask for the enabled side
@@ -220,6 +417,7 @@ export class EngineBridge {
     if (optionState.enabled && optionState.side === side) {
       console.log(`[EngineBridge] Applying ${target} parser mask for enabled side: ${side}`);
       this.updateMaterialTexture(target, composed, side);
+      this.updateMaskUvTransform(target, uvTransform.offset, uvTransform.scale);
     }
   }
 
@@ -227,7 +425,8 @@ export class EngineBridge {
     payload: ParserPayload,
     side: 'front' | 'back',
     _currentSide: 'front' | 'back', // Not used - masks applied based on optionState.side
-    state: ProoferState
+    state: ProoferState,
+    cardSize: { widthPx: number; heightPx: number }
   ): Promise<void> {
     const plates = this.getPlatesSorted(payload, side, 'EMBOSS');
     
@@ -238,19 +437,53 @@ export class EngineBridge {
         console.log(`[EngineBridge] No emboss map found for ${side}, using black placeholder (effect disabled)`);
         const blackMask = ResourceManager.createPlaceholderTexture(512, 512, new THREE.Color(0, 0, 0));
         this.updateMaterialTexture('emboss', blackMask, side);
+        // Reset UV transform to full card (no cropping)
+        this.updateMaskUvTransform('emboss', new THREE.Vector2(0, 0), new THREE.Vector2(1, 1));
       }
       return;
     }
 
     // Prefer height maps if present; otherwise merge masks.
-    const heightUrls = plates.map(p => p.assets.heightPng).filter(Boolean) as string[];
-    const maskUrls = plates.map(p => p.assets.maskPng).filter(Boolean) as string[];
+    // Use file field if available, otherwise fall back to assets
+    const heightUrls: string[] = [];
+    const maskUrls: string[] = [];
+    const baseUrl = import.meta.env.VITE_PARSER_BASE_URL || 'http://localhost:8080';
+    
+    const isProduction = window.location.protocol === 'https:';
+    const envBaseUrl = import.meta.env.VITE_PARSER_BASE_URL;
+    const useProxy = isProduction && (!envBaseUrl || envBaseUrl.startsWith('http://'));
+    
+    for (const plate of plates) {
+      if (plate.file) {
+        // New format: use file field (assume it's a height map if type is EMBOSS)
+        let url: string;
+        if (plate.file.startsWith('http://') || plate.file.startsWith('https://')) {
+          url = plate.file; // Already a full URL
+        } else {
+          // Relative path: use proxy in production, direct URL in development
+          if (useProxy) {
+            url = `/api/parser-proxy/output/${plate.file}`;
+          } else {
+            const baseUrl = envBaseUrl || 'http://localhost:8080';
+            url = `${baseUrl}/output/${plate.file}`;
+          }
+        }
+        heightUrls.push(url);
+      } else {
+        // Legacy format: use assets
+        if (plate.assets.heightPng) heightUrls.push(plate.assets.heightPng);
+        if (plate.assets.maskPng) maskUrls.push(plate.assets.maskPng);
+      }
+    }
+    
     const urls = heightUrls.length > 0 ? heightUrls : maskUrls;
     if (urls.length === 0) {
       if (state.optionStates.emboss.enabled && state.optionStates.emboss.side === side) {
         console.log(`[EngineBridge] No emboss assets found for ${side}, using black placeholder`);
         const blackMask = ResourceManager.createPlaceholderTexture(512, 512, new THREE.Color(0, 0, 0));
         this.updateMaterialTexture('emboss', blackMask, side);
+        // Reset UV transform to full card (no cropping)
+        this.updateMaskUvTransform('emboss', new THREE.Vector2(0, 0), new THREE.Vector2(1, 1));
       }
       return;
     }
@@ -259,10 +492,27 @@ export class EngineBridge {
     const composed = await this.getOrComposeStackedTexture(`emboss:${side}:${heightUrls.length > 0 ? 'height' : 'mask'}`, urls, 'max');
     console.log(`[EngineBridge] Composed emboss UUID for ${side}:`, composed?.uuid);
 
+    // Compute UV transform from first plate's rectPx/sizePx
+    const firstPlate = plates[0];
+    const uvTransform = this.computeUvTransform(
+      firstPlate.rectPx,
+      firstPlate.sizePx,
+      cardSize.widthPx,
+      cardSize.heightPx
+    );
+    
+    console.log(`[EngineBridge] emboss UV transform for ${side}:`, {
+      offset: uvTransform.offset,
+      scale: uvTransform.scale,
+      rectPx: firstPlate.rectPx,
+      sizePx: firstPlate.sizePx
+    });
+
     // Always apply parser emboss maps when enabled and side matches
     // Shader will use correct texture based on vFaceType
     if (state.optionStates.emboss.enabled && state.optionStates.emboss.side === side) {
       this.updateMaterialTexture('emboss', composed, side);
+      this.updateMaskUvTransform('emboss', uvTransform.offset, uvTransform.scale);
     }
   }
 
@@ -401,6 +651,30 @@ export class EngineBridge {
           }
         }
       }
+    }
+  }
+
+  /**
+   * Update UV transform for a mask type
+   */
+  private updateMaskUvTransform(
+    type: 'foil' | 'uv' | 'emboss' | 'diecut',
+    offset: THREE.Vector2,
+    scale: THREE.Vector2
+  ): void {
+    switch (type) {
+      case 'foil':
+        MaterialPipeline.updateFoilUvTransform(this.material, offset, scale);
+        break;
+      case 'uv':
+        MaterialPipeline.updateUvUvTransform(this.material, offset, scale);
+        break;
+      case 'emboss':
+        MaterialPipeline.updateEmbossUvTransform(this.material, offset, scale);
+        break;
+      case 'diecut':
+        MaterialPipeline.updateDieCutUvTransform(this.material, offset, scale);
+        break;
     }
   }
 

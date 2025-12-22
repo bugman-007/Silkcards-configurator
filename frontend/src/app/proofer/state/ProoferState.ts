@@ -30,6 +30,24 @@ export interface ParserPlateAssets {
 }
 
 /**
+ * Rectangle in pixel coordinates (card space)
+ */
+export interface RectPx {
+  x0: number; // Left edge
+  y0: number; // Top edge
+  x1: number; // Right edge
+  y1: number; // Bottom edge
+}
+
+/**
+ * Size in pixels
+ */
+export interface SizePx {
+  w: number; // Width
+  h: number; // Height
+}
+
+/**
  * Parser Plate (from JSON)
  */
 export interface ParserPlate {
@@ -41,16 +59,22 @@ export interface ParserPlate {
   face: CardSide;
   type: ParserPlateType;
   assets: ParserPlateAssets;
+  // New parser export fields
+  file?: string; // PNG filename (e.g., "front_layer_0_spot_uv_mask.png")
+  rectPx?: RectPx; // Bounding box in card pixel coordinates (top-left origin)
+  sizePx?: SizePx; // Size of cropped texture (w == x1-x0, h == y1-y0)
   meta?: Record<string, any>;
 }
 
 /**
- * Parser Payload (from JSON)
+ * Parser Payload (from JSON / meta.json)
  */
 export interface ParserPayload {
   schemaVersion?: string;
   jobId?: string;
   createdAt?: string;
+  // Root-level DPI from meta.json
+  dpi?: number;
   card: {
     stockId?: string;
     thicknessPt: number;
@@ -61,7 +85,7 @@ export interface ParserPayload {
       bleedMm?: number;
       safeMm?: number;
     };
-    dpi?: number;
+    dpi?: number; // Legacy: also in card object
   };
   plates: ParserPlate[];
   layersDetected?: string[];

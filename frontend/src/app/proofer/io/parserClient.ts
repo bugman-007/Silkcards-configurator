@@ -34,8 +34,21 @@ export class ParserClient {
     const envBaseUrl = import.meta.env.VITE_PARSER_BASE_URL;
     const envApiKey = import.meta.env.VITE_PARSER_API_KEY;
     
-    this.baseUrl = envBaseUrl || 'http://localhost:8080';
-    this.apiKey = envApiKey || '';
+    // In production (HTTPS), use the proxy API route to avoid mixed content errors
+    // The proxy will forward requests to the HTTP parser service
+    const isProduction = window.location.protocol === 'https:';
+    const useProxy = isProduction && (!envBaseUrl || envBaseUrl.startsWith('http://'));
+    
+    if (useProxy) {
+      // Use relative path to Vercel API route (same domain, HTTPS)
+      this.baseUrl = '/api/parser-proxy';
+      // API key is not needed for proxy (server-side handles it)
+      this.apiKey = '';
+    } else {
+      // Development or if HTTPS parser service URL is provided
+      this.baseUrl = envBaseUrl || 'http://localhost:8080';
+      this.apiKey = envApiKey || '';
+    }
     
     // Log configuration for debugging
     console.log('[ParserClient] Initialized with:', {

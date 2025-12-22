@@ -62,6 +62,18 @@ export class MaterialPipeline {
         uvMask: { value: uvMask },
         embossMask: { value: embossMask },
         dieCutMask: { value: dieCutMask },
+        
+        // UV transforms for cropped masks (offset and scale in card UV space)
+        // offset = (rectPx.x0 / cardWidthPx, rectPx.y0 / cardHeightPx)
+        // scale = (sizePx.w / cardWidthPx, sizePx.h / cardHeightPx)
+        foilUvOffset: { value: new THREE.Vector2(0.0, 0.0) },
+        foilUvScale: { value: new THREE.Vector2(1.0, 1.0) },
+        uvUvOffset: { value: new THREE.Vector2(0.0, 0.0) },
+        uvUvScale: { value: new THREE.Vector2(1.0, 1.0) },
+        embossUvOffset: { value: new THREE.Vector2(0.0, 0.0) },
+        embossUvScale: { value: new THREE.Vector2(1.0, 1.0) },
+        dieCutUvOffset: { value: new THREE.Vector2(0.0, 0.0) },
+        dieCutUvScale: { value: new THREE.Vector2(1.0, 1.0) },
 
         // Finish toggles (boolean flags)
         foilEnabled: { value: false },
@@ -226,6 +238,74 @@ export class MaterialPipeline {
   ): void {
     if (material.uniforms.dieCutEnabled) {
       material.uniforms.dieCutEnabled.value = enabled;
+    }
+    material.needsUpdate = true;
+  }
+
+  /**
+   * Update UV transform for foil mask (for cropped textures)
+   */
+  static updateFoilUvTransform(
+    material: THREE.ShaderMaterial,
+    offset: THREE.Vector2,
+    scale: THREE.Vector2
+  ): void {
+    if (material.uniforms.foilUvOffset) {
+      material.uniforms.foilUvOffset.value.copy(offset);
+    }
+    if (material.uniforms.foilUvScale) {
+      material.uniforms.foilUvScale.value.copy(scale);
+    }
+    material.needsUpdate = true;
+  }
+
+  /**
+   * Update UV transform for UV mask (for cropped textures)
+   */
+  static updateUvUvTransform(
+    material: THREE.ShaderMaterial,
+    offset: THREE.Vector2,
+    scale: THREE.Vector2
+  ): void {
+    if (material.uniforms.uvUvOffset) {
+      material.uniforms.uvUvOffset.value.copy(offset);
+    }
+    if (material.uniforms.uvUvScale) {
+      material.uniforms.uvUvScale.value.copy(scale);
+    }
+    material.needsUpdate = true;
+  }
+
+  /**
+   * Update UV transform for emboss mask (for cropped textures)
+   */
+  static updateEmbossUvTransform(
+    material: THREE.ShaderMaterial,
+    offset: THREE.Vector2,
+    scale: THREE.Vector2
+  ): void {
+    if (material.uniforms.embossUvOffset) {
+      material.uniforms.embossUvOffset.value.copy(offset);
+    }
+    if (material.uniforms.embossUvScale) {
+      material.uniforms.embossUvScale.value.copy(scale);
+    }
+    material.needsUpdate = true;
+  }
+
+  /**
+   * Update UV transform for die-cut mask (for cropped textures)
+   */
+  static updateDieCutUvTransform(
+    material: THREE.ShaderMaterial,
+    offset: THREE.Vector2,
+    scale: THREE.Vector2
+  ): void {
+    if (material.uniforms.dieCutUvOffset) {
+      material.uniforms.dieCutUvOffset.value.copy(offset);
+    }
+    if (material.uniforms.dieCutUvScale) {
+      material.uniforms.dieCutUvScale.value.copy(scale);
     }
     material.needsUpdate = true;
   }
