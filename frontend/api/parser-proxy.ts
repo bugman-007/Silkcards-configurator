@@ -1,21 +1,23 @@
 /**
- * Vercel API Route: Parser Service Proxy
+ * Vercel API Route: Parser Service Proxy (Streaming)
  * 
  * Proxies requests to the parser service to avoid mixed content errors.
- * Frontend makes HTTPS requests to this API route, which forwards to the HTTP parser service.
+ * Uses streaming to handle multipart/form-data uploads without parsing/buffering.
  * 
  * This handler accepts a query parameter 'path' to specify the target endpoint.
  * Example: /api/parser-proxy?path=parse
- * 
- * For sub-paths, we'll use URL rewriting or handle it via the path parameter.
  */
 
 import type { VercelRequest, VercelResponse } from '@vercel/node';
+import * as http from 'http';
+import * as https from 'https';
+import { URL } from 'url';
 
 const PARSER_BASE_URL = process.env.PARSER_BASE_URL || 'http://54.198.104.149:8080';
 const PARSER_API_KEY = process.env.PARSER_API_KEY || '';
+const PROXY_TIMEOUT_MS = 300000; // 5 minutes for large file uploads
 
-export default async function handler(
+export default function handler(
   req: VercelRequest,
   res: VercelResponse
 ) {
@@ -43,7 +45,6 @@ export default async function handler(
   }
 
   // Extract path from query parameter or URL
-  // Try query parameter first: /api/parser-proxy?path=parse
   let path = '';
   if (req.query.path) {
     path = Array.isArray(req.query.path) 
@@ -60,95 +61,161 @@ export default async function handler(
   // Construct the target URL
   const targetUrl = path ? `${PARSER_BASE_URL}/${path}` : PARSER_BASE_URL;
   
-  console.log(`[ParserProxy] Proxying ${req.method} ${req.url} -> ${targetUrl}`, {
+  console.log(`[ParserProxy] Streaming ${req.method} ${req.url} -> ${targetUrl}`, {
     path,
-    query: req.query,
-    contentType: req.headers['content-type']
+    contentType: req.headers['content-type'],
+    contentLength: req.headers['content-length']
   });
   
   try {
-    // Prepare headers
-    const headers: HeadersInit = {
+    // Parse target URL
+    const targetUrlObj = new URL(targetUrl);
+    const isHttps = targetUrlObj.protocol === 'https:';
+    const httpModule = isHttps ? https : http;
+    
+    // Prepare headers for upstream request
+    const upstreamHeaders: http.OutgoingHttpHeaders = {
       'x-api-key': PARSER_API_KEY,
     };
     
-    // Forward content-type (important for multipart/form-data with boundary)
-    const contentType = req.headers['content-type'];
-    if (contentType) {
-      headers['Content-Type'] = contentType;
+    // Forward important headers
+    if (req.headers['content-type']) {
+      upstreamHeaders['content-type'] = req.headers['content-type'];
+    }
+    if (req.headers['content-length']) {
+      upstreamHeaders['content-length'] = req.headers['content-length'];
     }
     
-    // Prepare body
-    let body: BodyInit | undefined;
-    if (req.method !== 'GET' && req.method !== 'HEAD') {
-      if (req.body) {
-        if (contentType?.includes('multipart/form-data')) {
-          // For multipart, try to forward as-is
-          // Vercel may have parsed it, but we'll try to reconstruct
-          if (Buffer.isBuffer(req.body)) {
-            body = req.body;
-          } else if (typeof req.body === 'string') {
-            body = req.body;
+    // Options for upstream request
+    const upstreamOptions: http.RequestOptions = {
+      hostname: targetUrlObj.hostname,
+      port: targetUrlObj.port || (isHttps ? 443 : 80),
+      path: targetUrlObj.pathname + targetUrlObj.search,
+      method: req.method,
+      headers: upstreamHeaders,
+      timeout: PROXY_TIMEOUT_MS,
+    };
+    
+    // Create upstream request
+    const upstreamReq = httpModule.request(upstreamOptions, (upstreamRes) => {
+      // Set response status
+      res.status(upstreamRes.statusCode || 500);
+      
+      // Forward response headers
+      const responseHeaders = upstreamRes.headers;
+      for (const [key, value] of Object.entries(responseHeaders)) {
+        if (value) {
+          // Handle array values
+          if (Array.isArray(value)) {
+            res.setHeader(key, value);
           } else {
-            // If parsed, we can't easily reconstruct multipart
-            // This is a limitation - might need busboy/formidable for production
-            body = req.body as any;
+            res.setHeader(key, value);
           }
-        } else {
-          // For JSON or other types
-          body = typeof req.body === 'string' ? req.body : JSON.stringify(req.body);
         }
       }
-    }
-    
-    // Forward the request to the parser service
-    const proxyResponse = await fetch(targetUrl, {
-      method: req.method,
-      headers,
-      body: body as any,
+      
+      // Set CORS headers
+      res.setHeader('Access-Control-Allow-Origin', '*');
+      res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+      res.setHeader('Access-Control-Allow-Headers', 'Content-Type, x-api-key');
+      
+      // Pipe upstream response to client response
+      upstreamRes.pipe(res);
+      
+      // Handle upstream response errors
+      upstreamRes.on('error', (error) => {
+        console.error('[ParserProxy] Upstream response error:', error);
+        if (!res.headersSent) {
+          res.status(502).json({
+            error: 'Bad Gateway',
+            message: 'Error receiving response from parser service'
+          });
+        }
+      });
     });
     
-    // Get response data
-    const responseContentType = proxyResponse.headers.get('content-type') || 'application/json';
-    let data: any;
+    // Handle upstream request errors
+    upstreamReq.on('error', (error) => {
+      console.error('[ParserProxy] Upstream request error:', error);
+      if (!res.headersSent) {
+        res.status(502).json({
+          error: 'Bad Gateway',
+          message: error.message || 'Failed to connect to parser service'
+        });
+      }
+    });
     
-    if (responseContentType.includes('application/json')) {
-      data = await proxyResponse.json();
-    } else if (responseContentType.includes('text/')) {
-      data = await proxyResponse.text();
+    // Handle timeout
+    upstreamReq.on('timeout', () => {
+      console.error('[ParserProxy] Upstream request timeout');
+      upstreamReq.destroy();
+      if (!res.headersSent) {
+        res.status(504).json({
+          error: 'Gateway Timeout',
+          message: 'Parser service did not respond in time'
+        });
+      }
+    });
+    
+    // Pipe incoming request body directly to upstream request
+    // This streams the multipart data without parsing/buffering
+    if (req.method !== 'GET' && req.method !== 'HEAD') {
+      // Vercel's req is a wrapper around Node's IncomingMessage
+      // IncomingMessage is a readable stream, so we should be able to pipe it
+      // Try to access the underlying stream
+      const nodeReq = req as any;
+      
+      // Check if req itself is a readable stream (Node.js IncomingMessage)
+      if (typeof nodeReq.pipe === 'function' && nodeReq.readable !== false) {
+        // Pipe the request stream directly to upstream
+        // This preserves the multipart boundary and streams without buffering
+        nodeReq.pipe(upstreamReq);
+        console.log('[ParserProxy] Piping request stream directly to upstream (streaming mode)');
+      } else {
+        // Fallback: try to access raw body stream
+        const rawBody = nodeReq.rawBody || nodeReq.body;
+        
+        if (rawBody && typeof rawBody.pipe === 'function') {
+          rawBody.pipe(upstreamReq);
+          console.log('[ParserProxy] Piping raw body stream to upstream');
+        } else if (rawBody && Buffer.isBuffer(rawBody)) {
+          upstreamReq.write(rawBody);
+          upstreamReq.end();
+          console.log('[ParserProxy] Writing raw body buffer to upstream');
+        } else {
+          // If stream is not available, log warning and try fallback
+          console.warn('[ParserProxy] Request stream not available - body may be truncated. Available:', {
+            hasPipe: typeof nodeReq.pipe === 'function',
+            readable: nodeReq.readable,
+            hasRawBody: !!nodeReq.rawBody,
+            hasBody: !!nodeReq.body
+          });
+          
+          // Last resort: try to send what we have (may be incomplete/truncated)
+          if (nodeReq.body) {
+            if (Buffer.isBuffer(nodeReq.body)) {
+              upstreamReq.write(nodeReq.body);
+            } else {
+              // This will likely fail for multipart, but it's better than nothing
+              console.error('[ParserProxy] Body is not a buffer - multipart data will be corrupted');
+            }
+          }
+          upstreamReq.end();
+        }
+      }
     } else {
-      // For binary data (like images), get as array buffer
-      const buffer = await proxyResponse.arrayBuffer();
-      data = Buffer.from(buffer);
+      // GET/HEAD requests have no body
+      upstreamReq.end();
     }
     
-    // Forward status and headers
-    res.status(proxyResponse.status);
-    
-    // Forward content-type
-    if (responseContentType) {
-      res.setHeader('Content-Type', responseContentType);
-    }
-    
-    // Set CORS headers
-    res.setHeader('Access-Control-Allow-Origin', '*');
-    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, x-api-key');
-    
-    // Send response
-    if (Buffer.isBuffer(data)) {
-      res.send(data);
-    } else if (responseContentType.includes('application/json')) {
-      res.json(data);
-    } else {
-      res.send(data);
-    }
   } catch (error) {
-    console.error('[ParserProxy] Error proxying request:', error);
-    res.status(500).json({ 
-      error: 'Failed to proxy request to parser service',
-      message: error instanceof Error ? error.message : 'Unknown error'
-    });
+    console.error('[ParserProxy] Error setting up proxy:', error);
+    if (!res.headersSent) {
+      res.status(500).json({ 
+        error: 'Internal Server Error',
+        message: error instanceof Error ? error.message : 'Unknown error'
+      });
+    }
   }
 }
 
