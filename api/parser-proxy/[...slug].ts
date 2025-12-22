@@ -1,8 +1,11 @@
 /**
- * Vercel API Route: Parser Service Proxy
+ * Vercel API Route: Parser Service Proxy (Catch-all)
  * 
  * Proxies requests to the parser service to avoid mixed content errors.
  * Frontend makes HTTPS requests to this API route, which forwards to the HTTP parser service.
+ * 
+ * Route: /api/parser-proxy/*
+ * This catch-all route handles all sub-paths like /api/parser-proxy/parse, /api/parser-proxy/parse/jobId, etc.
  */
 
 import type { VercelRequest, VercelResponse } from '@vercel/node';
@@ -22,13 +25,15 @@ export default async function handler(
     return res.status(200).end();
   }
 
-  // Get the path from the catch-all route
-  const path = Array.isArray(req.query.path) 
-    ? req.query.path.join('/') 
-    : req.query.path || '';
+  // Get the path from the catch-all route parameter
+  // Vercel passes it as req.query.slug (or the parameter name)
+  const slug = req.query.slug;
+  const path = Array.isArray(slug) 
+    ? slug.join('/') 
+    : (slug || '');
   
   // Construct the target URL
-  const targetUrl = `${PARSER_BASE_URL}/${path}`;
+  const targetUrl = path ? `${PARSER_BASE_URL}/${path}` : PARSER_BASE_URL;
   
   console.log(`[ParserProxy] Proxying ${req.method} ${req.url} -> ${targetUrl}`);
   
@@ -38,24 +43,32 @@ export default async function handler(
       'x-api-key': PARSER_API_KEY,
     };
     
-    // For file uploads (multipart/form-data), don't set Content-Type - let fetch set it with boundary
-    // For other requests, forward Content-Type
-    if (req.headers['content-type'] && !req.headers['content-type'].includes('multipart/form-data')) {
-      headers['Content-Type'] = req.headers['content-type'];
+    // Forward content-type (important for multipart/form-data with boundary)
+    const contentType = req.headers['content-type'];
+    if (contentType) {
+      headers['Content-Type'] = contentType;
     }
     
     // Prepare body
     let body: BodyInit | undefined;
     if (req.method !== 'GET' && req.method !== 'HEAD') {
-      if (req.headers['content-type']?.includes('multipart/form-data')) {
-        // For file uploads, Vercel provides req.body as a buffer
-        // We need to forward it as-is with the correct content-type header
-        // Remove Content-Type from headers so fetch can set it with boundary
-        delete headers['Content-Type'];
-        body = req.body as any;
-      } else if (req.body) {
-        // For JSON or other content types, stringify if it's an object
-        body = typeof req.body === 'string' ? req.body : JSON.stringify(req.body);
+      if (req.body) {
+        if (contentType?.includes('multipart/form-data')) {
+          // For multipart, try to forward as-is
+          // Vercel may have parsed it, but we'll try to reconstruct
+          if (Buffer.isBuffer(req.body)) {
+            body = req.body;
+          } else if (typeof req.body === 'string') {
+            body = req.body;
+          } else {
+            // If parsed, we can't easily reconstruct multipart
+            // This is a limitation - might need busboy/formidable for production
+            body = req.body as any;
+          }
+        } else {
+          // For JSON or other types
+          body = typeof req.body === 'string' ? req.body : JSON.stringify(req.body);
+        }
       }
     }
     
@@ -67,12 +80,12 @@ export default async function handler(
     });
     
     // Get response data
-    const contentType = proxyResponse.headers.get('content-type') || 'application/json';
+    const responseContentType = proxyResponse.headers.get('content-type') || 'application/json';
     let data: any;
     
-    if (contentType.includes('application/json')) {
+    if (responseContentType.includes('application/json')) {
       data = await proxyResponse.json();
-    } else if (contentType.includes('text/')) {
+    } else if (responseContentType.includes('text/')) {
       data = await proxyResponse.text();
     } else {
       // For binary data (like images), get as array buffer
@@ -84,8 +97,8 @@ export default async function handler(
     res.status(proxyResponse.status);
     
     // Forward content-type
-    if (contentType) {
-      res.setHeader('Content-Type', contentType);
+    if (responseContentType) {
+      res.setHeader('Content-Type', responseContentType);
     }
     
     // Set CORS headers
@@ -96,7 +109,7 @@ export default async function handler(
     // Send response
     if (Buffer.isBuffer(data)) {
       res.send(data);
-    } else if (contentType.includes('application/json')) {
+    } else if (responseContentType.includes('application/json')) {
       res.json(data);
     } else {
       res.send(data);
