@@ -1,11 +1,13 @@
 /**
- * Vercel API Route: Parser Service Proxy (Catch-all)
+ * Vercel API Route: Parser Service Proxy
  * 
  * Proxies requests to the parser service to avoid mixed content errors.
  * Frontend makes HTTPS requests to this API route, which forwards to the HTTP parser service.
  * 
- * Route: /api/parser-proxy/*
- * This catch-all route handles all sub-paths like /api/parser-proxy/parse, /api/parser-proxy/parse/jobId, etc.
+ * This handler accepts a query parameter 'path' to specify the target endpoint.
+ * Example: /api/parser-proxy?path=parse
+ * 
+ * For sub-paths, we'll use URL rewriting or handle it via the path parameter.
  */
 
 import type { VercelRequest, VercelResponse } from '@vercel/node';
@@ -17,6 +19,9 @@ export default async function handler(
   req: VercelRequest,
   res: VercelResponse
 ) {
+  // Log all incoming requests for debugging
+  console.log(`[ParserProxy] Received ${req.method} request to ${req.url}`);
+  
   // Handle CORS preflight
   if (req.method === 'OPTIONS') {
     res.setHeader('Access-Control-Allow-Origin', '*');
@@ -25,17 +30,41 @@ export default async function handler(
     return res.status(200).end();
   }
 
-  // Get the path from the catch-all route parameter
-  // Vercel passes it as req.query.slug (or the parameter name)
-  const slug = req.query.slug;
-  const path = Array.isArray(slug) 
-    ? slug.join('/') 
-    : (slug || '');
+  // Ensure we support the requested method
+  const allowedMethods = ['GET', 'POST', 'PUT', 'DELETE', 'PATCH'];
+  if (!allowedMethods.includes(req.method || '')) {
+    console.error(`[ParserProxy] Method not allowed: ${req.method}`);
+    res.status(405).json({ 
+      error: 'Method not allowed',
+      method: req.method,
+      allowed: allowedMethods
+    });
+    return;
+  }
+
+  // Extract path from query parameter or URL
+  // Try query parameter first: /api/parser-proxy?path=parse
+  let path = '';
+  if (req.query.path) {
+    path = Array.isArray(req.query.path) 
+      ? req.query.path.join('/') 
+      : req.query.path;
+  } else if (req.url) {
+    // Try to extract from URL: /api/parser-proxy/parse -> parse
+    const urlMatch = req.url.match(/\/api\/parser-proxy\/(.+?)(?:\?|$)/);
+    if (urlMatch) {
+      path = urlMatch[1];
+    }
+  }
   
   // Construct the target URL
   const targetUrl = path ? `${PARSER_BASE_URL}/${path}` : PARSER_BASE_URL;
   
-  console.log(`[ParserProxy] Proxying ${req.method} ${req.url} -> ${targetUrl}`);
+  console.log(`[ParserProxy] Proxying ${req.method} ${req.url} -> ${targetUrl}`, {
+    path,
+    query: req.query,
+    contentType: req.headers['content-type']
+  });
   
   try {
     // Prepare headers
