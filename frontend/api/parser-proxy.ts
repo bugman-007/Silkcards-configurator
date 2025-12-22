@@ -103,6 +103,9 @@ export default function handler(
       
       // Forward response headers
       const responseHeaders = upstreamRes.headers;
+      let hasCacheControl = false;
+      let hasContentType = false;
+      
       for (const [key, value] of Object.entries(responseHeaders)) {
         if (value) {
           // Handle array values
@@ -111,6 +114,22 @@ export default function handler(
           } else {
             res.setHeader(key, value);
           }
+          
+          // Track important headers
+          if (key.toLowerCase() === 'cache-control') {
+            hasCacheControl = true;
+          }
+          if (key.toLowerCase() === 'content-type') {
+            hasContentType = true;
+          }
+        }
+      }
+      
+      // For GET requests to assets, add caching headers if EC2 doesn't provide them
+      if (req.method === 'GET' && path.includes('assets/')) {
+        if (!hasCacheControl) {
+          // Add long-term caching for static assets
+          res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
         }
       }
       
@@ -119,7 +138,7 @@ export default function handler(
       res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
       res.setHeader('Access-Control-Allow-Headers', 'Content-Type, x-api-key');
       
-      // Pipe upstream response to client response
+      // Pipe upstream response to client response (streaming, no buffering)
       upstreamRes.pipe(res);
       
       // Handle upstream response errors
@@ -130,6 +149,9 @@ export default function handler(
             error: 'Bad Gateway',
             message: 'Error receiving response from parser service'
           });
+        } else {
+          // If headers already sent, destroy the response stream
+          res.destroy();
         }
       });
     });

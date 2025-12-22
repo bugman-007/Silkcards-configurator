@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { RGBELoader } from 'three/examples/jsm/loaders/RGBELoader.js';
 import { TextureLoader } from 'three';
+import { rewriteAssetUrl } from '../utils/urlRewriter.js';
 
 /**
  * Resource Manager - Proofer
@@ -62,8 +63,12 @@ export class ResourceManager {
       await this.init();
     }
 
-    if (this.loadedTextures.has(path)) {
-      return this.loadedTextures.get(path)!;
+    // Rewrite HTTP asset URLs to use proxy in production (avoid mixed content)
+    const rewrittenPath = rewriteAssetUrl(path);
+    
+    // Use rewritten path for caching
+    if (this.loadedTextures.has(rewrittenPath)) {
+      return this.loadedTextures.get(rewrittenPath)!;
     }
 
     if (!this.textureLoader) {
@@ -72,16 +77,17 @@ export class ResourceManager {
 
     return new Promise((resolve, reject) => {
       this.textureLoader!.load(
-        path,
+        rewrittenPath,
         (texture) => {
           texture.flipY = false;
           texture.colorSpace = THREE.SRGBColorSpace;
-          this.loadedTextures.set(path, texture);
+          // Cache by rewritten path
+          this.loadedTextures.set(rewrittenPath, texture);
           resolve(texture);
         },
         undefined,
         (error) => {
-          console.error(`Failed to load texture ${path}:`, error);
+          console.error(`Failed to load texture ${rewrittenPath} (original: ${path}):`, error);
           reject(error);
         }
       );

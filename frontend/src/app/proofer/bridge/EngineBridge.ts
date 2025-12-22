@@ -11,6 +11,7 @@ import { MaterialPipeline } from '../materials/MaterialPipeline.js';
 import { ResourceManager } from '../resources/ResourceManager.js';
 import { CardGeometry } from '../geometry/CardGeometry.js';
 import { ProoferState, ParsedPlate, ParserPayload, ParserPlate } from '../state/ProoferState.js';
+import { rewriteAssetUrl } from '../utils/urlRewriter.js';
 
 /**
  * Engine Bridge for Proofer
@@ -304,9 +305,10 @@ export class EngineBridge {
       if (p.file) {
         // file might be a full URL or relative path
         if (p.file.startsWith('http://') || p.file.startsWith('https://')) {
-          return p.file; // Already a full URL
+          // Rewrite HTTP URLs to use proxy in production
+          return rewriteAssetUrl(p.file);
         }
-        // Relative path: use proxy in production (HTTPS), direct URL in development
+        // Relative path: construct full URL then rewrite if needed
         const isProduction = window.location.protocol === 'https:';
         const envBaseUrl = import.meta.env.VITE_PARSER_BASE_URL;
         const useProxy = isProduction && (!envBaseUrl || envBaseUrl.startsWith('http://'));
@@ -315,10 +317,12 @@ export class EngineBridge {
           return `/api/parser-proxy/output/${p.file}`;
         } else {
           const baseUrl = envBaseUrl || 'http://localhost:8080';
-          return `${baseUrl}/output/${p.file}`;
+          const fullUrl = `${baseUrl}/output/${p.file}`;
+          return rewriteAssetUrl(fullUrl);
         }
       }
-      return p.assets.png!;
+      // Rewrite assets.png URL if it's a full HTTP URL
+      return rewriteAssetUrl(p.assets.png!);
     });
     
     console.log(`[EngineBridge] Composing print for ${side}:`, urls.length, 'layers');
@@ -373,9 +377,10 @@ export class EngineBridge {
       if (p.file) {
         // file might be a full URL or relative path
         if (p.file.startsWith('http://') || p.file.startsWith('https://')) {
-          return p.file; // Already a full URL
+          // Rewrite HTTP URLs to use proxy in production
+          return rewriteAssetUrl(p.file);
         }
-        // Relative path: use proxy in production (HTTPS), direct URL in development
+        // Relative path: construct full URL then rewrite if needed
         const isProduction = window.location.protocol === 'https:';
         const envBaseUrl = import.meta.env.VITE_PARSER_BASE_URL;
         const useProxy = isProduction && (!envBaseUrl || envBaseUrl.startsWith('http://'));
@@ -384,10 +389,12 @@ export class EngineBridge {
           return `/api/parser-proxy/output/${p.file}`;
         } else {
           const baseUrl = envBaseUrl || 'http://localhost:8080';
-          return `${baseUrl}/output/${p.file}`;
+          const fullUrl = `${baseUrl}/output/${p.file}`;
+          return rewriteAssetUrl(fullUrl);
         }
       }
-      return p.assets.maskPng!;
+      // Rewrite assets.maskPng URL if it's a full HTTP URL
+      return rewriteAssetUrl(p.assets.maskPng!);
     });
     
     console.log(`[EngineBridge] Composing ${target} parser mask for ${side}:`, urls.length, 'layers');
@@ -458,21 +465,23 @@ export class EngineBridge {
         // New format: use file field (assume it's a height map if type is EMBOSS)
         let url: string;
         if (plate.file.startsWith('http://') || plate.file.startsWith('https://')) {
-          url = plate.file; // Already a full URL
+          // Rewrite HTTP URLs to use proxy in production
+          url = rewriteAssetUrl(plate.file);
         } else {
           // Relative path: use proxy in production, direct URL in development
           if (useProxy) {
             url = `/api/parser-proxy/output/${plate.file}`;
           } else {
             const baseUrl = envBaseUrl || 'http://localhost:8080';
-            url = `${baseUrl}/output/${plate.file}`;
+            const fullUrl = `${baseUrl}/output/${plate.file}`;
+            url = rewriteAssetUrl(fullUrl);
           }
         }
         heightUrls.push(url);
       } else {
-        // Legacy format: use assets
-        if (plate.assets.heightPng) heightUrls.push(plate.assets.heightPng);
-        if (plate.assets.maskPng) maskUrls.push(plate.assets.maskPng);
+        // Legacy format: use assets - rewrite URLs if needed
+        if (plate.assets.heightPng) heightUrls.push(rewriteAssetUrl(plate.assets.heightPng));
+        if (plate.assets.maskPng) maskUrls.push(rewriteAssetUrl(plate.assets.maskPng));
       }
     }
     
