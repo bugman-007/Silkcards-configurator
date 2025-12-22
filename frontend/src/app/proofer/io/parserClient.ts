@@ -27,6 +27,7 @@ export interface ParseJobStatus {
 export class ParserClient {
   private baseUrl: string;
   private apiKey: string;
+  private useProxy: boolean;
 
   constructor() {
     // Get from environment variables (Vite uses import.meta.env.VITE_*)
@@ -37,9 +38,9 @@ export class ParserClient {
     // In production (HTTPS), use the proxy API route to avoid mixed content errors
     // The proxy will forward requests to the HTTP parser service
     const isProduction = window.location.protocol === 'https:';
-    const useProxy = isProduction && (!envBaseUrl || envBaseUrl.startsWith('http://'));
+    this.useProxy = isProduction && (!envBaseUrl || envBaseUrl.startsWith('http://'));
     
-    if (useProxy) {
+    if (this.useProxy) {
       // Use relative path to Vercel API route (same domain, HTTPS)
       this.baseUrl = '/api/parser-proxy';
       // API key is not needed for proxy (server-side handles it)
@@ -53,23 +54,26 @@ export class ParserClient {
     // Log configuration for debugging
     console.log('[ParserClient] Initialized with:', {
       baseUrl: this.baseUrl,
+      useProxy: this.useProxy,
       hasApiKey: !!this.apiKey,
       envBaseUrl: envBaseUrl || '(not set - using default)',
       envApiKey: envApiKey ? '***' : '(not set)',
       allEnvKeys: Object.keys(import.meta.env).filter(k => k.startsWith('VITE_'))
     });
     
-    // Warn if using defaults
-    if (!envBaseUrl) {
-      console.error('[ParserClient] ⚠️ VITE_PARSER_BASE_URL not found in environment!');
-      console.error('[ParserClient] Current baseUrl:', this.baseUrl);
-      console.error('[ParserClient]');
-      console.error('[ParserClient] To fix:');
-      console.error('[ParserClient] 1. Create/update frontend/.env file with:');
-      console.error('[ParserClient]    VITE_PARSER_BASE_URL=http://54.198.104.149:8080');
-      console.error('[ParserClient]    VITE_PARSER_API_KEY=your-api-key-here');
-      console.error('[ParserClient] 2. Restart the Vite dev server (npm run dev)');
-      console.error('[ParserClient] 3. Vite only loads .env files on startup');
+    // Warn if using defaults (only in development, not when using proxy)
+    if (!this.useProxy && !envBaseUrl) {
+      console.warn('[ParserClient] ⚠️ VITE_PARSER_BASE_URL not found in environment!');
+      console.warn('[ParserClient] Current baseUrl:', this.baseUrl);
+      console.warn('[ParserClient]');
+      console.warn('[ParserClient] To fix:');
+      console.warn('[ParserClient] 1. Create/update frontend/.env file with:');
+      console.warn('[ParserClient]    VITE_PARSER_BASE_URL=http://54.198.104.149:8080');
+      console.warn('[ParserClient]    VITE_PARSER_API_KEY=your-api-key-here');
+      console.warn('[ParserClient] 2. Restart the Vite dev server (npm run dev)');
+      console.warn('[ParserClient] 3. Vite only loads .env files on startup');
+    } else if (this.useProxy) {
+      console.log('[ParserClient] ✅ Using proxy API route (HTTPS -> HTTP handled server-side):', this.baseUrl);
     } else {
       console.log('[ParserClient] ✅ Using configured parser service:', this.baseUrl);
     }
@@ -82,9 +86,9 @@ export class ParserClient {
     file: File,
     onProgress?: (progress: number) => void
   ): Promise<ParseJobResponse> {
-    // If backend auth is enabled, a missing client key will always 401.
-    // Fail fast with a clear message so this is easy to diagnose in deployed builds.
-    if (!this.apiKey) {
+    // If not using proxy, API key is required
+    // When using proxy, API key is handled server-side
+    if (!this.useProxy && !this.apiKey) {
       throw new Error(
         'Missing API key for parser service. Set VITE_PARSER_API_KEY (Vite client env var) ' +
         'to match the parser backend API_KEY, then restart/rebuild the frontend.'
@@ -95,7 +99,7 @@ export class ParserClient {
     formData.append('file', file);
 
     const url = `${this.baseUrl}/parse`;
-    console.log('[ParserClient] Uploading file to:', url, 'Size:', file.size, 'bytes');
+    console.log('[ParserClient] Uploading file to:', url, 'Size:', file.size, 'bytes', this.useProxy ? '(via proxy)' : '(direct)');
 
     return new Promise<ParseJobResponse>((resolve, reject) => {
       const xhr = new XMLHttpRequest();
@@ -146,8 +150,10 @@ export class ParserClient {
       // Start upload
       xhr.open('POST', url);
       
-      // Set headers
-      xhr.setRequestHeader('x-api-key', this.apiKey);
+      // Set headers - only send API key when not using proxy (proxy handles it server-side)
+      if (!this.useProxy && this.apiKey) {
+        xhr.setRequestHeader('x-api-key', this.apiKey);
+      }
 
       xhr.send(formData);
     });
@@ -157,7 +163,9 @@ export class ParserClient {
    * Get job status
    */
   async getJobStatus(jobId: string): Promise<ParseJobStatus> {
-    if (!this.apiKey) {
+    // If not using proxy, API key is required
+    // When using proxy, API key is handled server-side
+    if (!this.useProxy && !this.apiKey) {
       throw new Error(
         'Missing API key for parser service. Set VITE_PARSER_API_KEY (Vite client env var) ' +
         'to match the parser backend API_KEY, then restart/rebuild the frontend.'
@@ -165,7 +173,10 @@ export class ParserClient {
     }
 
     const headers: HeadersInit = {};
-    headers['x-api-key'] = this.apiKey;
+    // Only send API key when not using proxy (proxy handles it server-side)
+    if (!this.useProxy && this.apiKey) {
+      headers['x-api-key'] = this.apiKey;
+    }
 
     const response = await fetch(`${this.baseUrl}/parse/${jobId}`, {
       method: 'GET',
