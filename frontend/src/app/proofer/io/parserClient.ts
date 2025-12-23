@@ -27,7 +27,6 @@ export interface ParseJobStatus {
 export class ParserClient {
   private baseUrl: string;
   private apiKey: string;
-  private useProxy: boolean;
 
   constructor() {
     // Get from environment variables (Vite uses import.meta.env.VITE_*)
@@ -35,34 +34,35 @@ export class ParserClient {
     const envBaseUrl = import.meta.env.VITE_PARSER_BASE_URL;
     const envApiKey = import.meta.env.VITE_PARSER_API_KEY;
     
-    // In production (HTTPS), use the proxy API route to avoid mixed content errors
-    // The proxy will forward requests to the HTTP parser service
-    const isProduction = window.location.protocol === 'https:';
-    this.useProxy = isProduction && (!envBaseUrl || envBaseUrl.startsWith('http://'));
+    // NEVER use proxy for uploads - always use direct parser service URL
+    // Proxy is only used for asset downloads (handled by urlRewriter)
+    // This avoids 413 FUNCTION_PAYLOAD_TOO_LARGE errors from Vercel serverless functions
     
-    if (this.useProxy) {
-      // Use relative path to Vercel API route (same domain, HTTPS)
-      this.baseUrl = '/api/parser-proxy';
-      // API key is not needed for proxy (server-side handles it)
-      this.apiKey = '';
+    // Always use direct parser service URL
+    // Default to HTTPS parser service in production, HTTP localhost in development
+    if (envBaseUrl) {
+      this.baseUrl = envBaseUrl;
     } else {
-      // Development or if HTTPS parser service URL is provided
-      this.baseUrl = envBaseUrl || 'http://localhost:8080';
-      this.apiKey = envApiKey || '';
+      // Default: use HTTPS parser service in production, localhost in development
+      const isProduction = typeof window !== 'undefined' && window.location.protocol === 'https:';
+      this.baseUrl = isProduction 
+        ? 'https://silkcards-parser.duckdns.org'
+        : 'http://localhost:8080';
     }
+    
+    this.apiKey = envApiKey || '';
     
     // Log configuration for debugging
     console.log('[ParserClient] Initialized with:', {
       baseUrl: this.baseUrl,
-      useProxy: this.useProxy,
       hasApiKey: !!this.apiKey,
       envBaseUrl: envBaseUrl || '(not set - using default)',
       envApiKey: envApiKey ? '***' : '(not set)',
       allEnvKeys: Object.keys(import.meta.env).filter(k => k.startsWith('VITE_'))
     });
     
-    // Warn if using defaults (only in development, not when using proxy)
-    if (!this.useProxy && !envBaseUrl) {
+    // Warn if using defaults
+    if (!envBaseUrl) {
       console.warn('[ParserClient] ⚠️ VITE_PARSER_BASE_URL not found in environment!');
       console.warn('[ParserClient] Current baseUrl:', this.baseUrl);
       console.warn('[ParserClient]');
@@ -72,68 +72,40 @@ export class ParserClient {
       console.warn('[ParserClient]    VITE_PARSER_API_KEY=your-api-key-here');
       console.warn('[ParserClient] 2. Restart the Vite dev server (npm run dev)');
       console.warn('[ParserClient] 3. Vite only loads .env files on startup');
-    } else if (this.useProxy) {
-      console.log('[ParserClient] ✅ Using proxy API route (HTTPS -> HTTP handled server-side):', this.baseUrl);
     } else {
       console.log('[ParserClient] ✅ Using configured parser service:', this.baseUrl);
+    }
+    
+    if (!this.apiKey) {
+      console.warn('[ParserClient] ⚠️ VITE_PARSER_API_KEY not set - uploads may fail');
     }
   }
 
   /**
    * Upload file and start parsing
+   * 
+   * IMPORTANT: Always uploads directly to parser service (never via proxy)
+   * to avoid Vercel serverless function payload size limits (413 errors).
+   * Proxy is only used for asset downloads (handled by urlRewriter).
    */
   async uploadFile(
     file: File,
     onProgress?: (progress: number) => void
   ): Promise<ParseJobResponse> {
-    // Size threshold for direct upload (8MB)
-    const LARGE_FILE_THRESHOLD = 8 * 1024 * 1024; // 8MB in bytes
-    const isLargeFile = file.size > LARGE_FILE_THRESHOLD;
-    
-    // Check for direct URL override for large files
-    const directUrl = import.meta.env.VITE_PARSER_DIRECT_URL;
-    const useDirectForLarge = isLargeFile && !!directUrl;
-    
-    // Determine upload URL and API key handling
-    let uploadUrl: string;
-    let apiKeyToUse: string | undefined;
-    let uploadMethod: 'proxy' | 'direct';
-    
-    if (useDirectForLarge) {
-      // Large file: use direct URL (bypass proxy to avoid 413)
-      uploadUrl = `${directUrl}/parse`;
-      uploadMethod = 'direct';
-      
-      // Ensure API key is available for direct upload
-      const directApiKey = import.meta.env.VITE_PARSER_API_KEY;
-      if (!directApiKey) {
-        throw new Error(
-          'Large file upload requires VITE_PARSER_DIRECT_URL and VITE_PARSER_API_KEY. ' +
-          'Set both environment variables and rebuild the frontend.'
-        );
-      }
-      apiKeyToUse = directApiKey;
-      
-      console.log('[ParserClient] Large file detected, using direct URL:', uploadUrl, 'Size:', file.size, 'bytes');
-    } else {
-      // Normal file: use existing logic (proxy in production, direct in dev)
-      uploadUrl = `${this.baseUrl}/parse`;
-      uploadMethod = this.useProxy ? 'proxy' : 'direct';
-      
-      // If not using proxy, API key is required
-      if (!this.useProxy && !this.apiKey) {
-        throw new Error(
-          'Missing API key for parser service. Set VITE_PARSER_API_KEY (Vite client env var) ' +
-          'to match the parser backend API_KEY, then restart/rebuild the frontend.'
-        );
-      }
-      apiKeyToUse = this.useProxy ? undefined : this.apiKey;
-      
-      console.log('[ParserClient] Uploading file to:', uploadUrl, 'Size:', file.size, 'bytes', uploadMethod === 'proxy' ? '(via proxy)' : '(direct)');
+    // API key is always required for direct uploads
+    if (!this.apiKey) {
+      throw new Error(
+        'Missing API key for parser service. Set VITE_PARSER_API_KEY (Vite client env var) ' +
+        'to match the parser backend API_KEY, then restart/rebuild the frontend.'
+      );
     }
 
     const formData = new FormData();
     formData.append('file', file);
+
+    // Always use direct parser service URL (never proxy)
+    const url = `${this.baseUrl}/parse`;
+    console.log('[ParserClient] Uploading file directly to:', url, 'Size:', file.size, 'bytes (direct, no proxy)');
 
     return new Promise<ParseJobResponse>((resolve, reject) => {
       const xhr = new XMLHttpRequest();
@@ -168,12 +140,11 @@ export class ParserClient {
 
       // Handle errors
       xhr.addEventListener('error', () => {
-        const targetUrl = useDirectForLarge ? directUrl : this.baseUrl;
         reject(new Error(
-          `Cannot connect to parser service at ${targetUrl}. ` +
+          `Cannot connect to parser service at ${this.baseUrl}. ` +
           `Please check:\n` +
           `1. Parser service is running (npm run dev in silkcards-parser/server)\n` +
-          `2. VITE_PARSER_BASE_URL or VITE_PARSER_DIRECT_URL is set correctly in frontend/.env file\n` +
+          `2. VITE_PARSER_BASE_URL is set correctly in frontend/.env file\n` +
           `3. Firewall allows connections to the parser service port`
         ));
       });
@@ -183,11 +154,11 @@ export class ParserClient {
       });
 
       // Start upload
-      xhr.open('POST', uploadUrl);
+      xhr.open('POST', url);
       
-      // Set headers - send API key for direct uploads (proxy handles it server-side)
-      if (apiKeyToUse) {
-        xhr.setRequestHeader('x-api-key', apiKeyToUse);
+      // Always send API key for direct uploads
+      if (this.apiKey) {
+        xhr.setRequestHeader('x-api-key', this.apiKey);
       }
 
       xhr.send(formData);
@@ -196,11 +167,12 @@ export class ParserClient {
 
   /**
    * Get job status
+   * 
+   * Always uses direct parser service URL (never via proxy)
    */
   async getJobStatus(jobId: string): Promise<ParseJobStatus> {
-    // If not using proxy, API key is required
-    // When using proxy, API key is handled server-side
-    if (!this.useProxy && !this.apiKey) {
+    // API key is always required for direct requests
+    if (!this.apiKey) {
       throw new Error(
         'Missing API key for parser service. Set VITE_PARSER_API_KEY (Vite client env var) ' +
         'to match the parser backend API_KEY, then restart/rebuild the frontend.'
@@ -208,8 +180,8 @@ export class ParserClient {
     }
 
     const headers: HeadersInit = {};
-    // Only send API key when not using proxy (proxy handles it server-side)
-    if (!this.useProxy && this.apiKey) {
+    // Always send API key for direct requests
+    if (this.apiKey) {
       headers['x-api-key'] = this.apiKey;
     }
 
