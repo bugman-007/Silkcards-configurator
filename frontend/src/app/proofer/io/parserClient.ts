@@ -86,20 +86,54 @@ export class ParserClient {
     file: File,
     onProgress?: (progress: number) => void
   ): Promise<ParseJobResponse> {
-    // If not using proxy, API key is required
-    // When using proxy, API key is handled server-side
-    if (!this.useProxy && !this.apiKey) {
-      throw new Error(
-        'Missing API key for parser service. Set VITE_PARSER_API_KEY (Vite client env var) ' +
-        'to match the parser backend API_KEY, then restart/rebuild the frontend.'
-      );
+    // Size threshold for direct upload (8MB)
+    const LARGE_FILE_THRESHOLD = 8 * 1024 * 1024; // 8MB in bytes
+    const isLargeFile = file.size > LARGE_FILE_THRESHOLD;
+    
+    // Check for direct URL override for large files
+    const directUrl = import.meta.env.VITE_PARSER_DIRECT_URL;
+    const useDirectForLarge = isLargeFile && !!directUrl;
+    
+    // Determine upload URL and API key handling
+    let uploadUrl: string;
+    let apiKeyToUse: string | undefined;
+    let uploadMethod: 'proxy' | 'direct';
+    
+    if (useDirectForLarge) {
+      // Large file: use direct URL (bypass proxy to avoid 413)
+      uploadUrl = `${directUrl}/parse`;
+      uploadMethod = 'direct';
+      
+      // Ensure API key is available for direct upload
+      const directApiKey = import.meta.env.VITE_PARSER_API_KEY;
+      if (!directApiKey) {
+        throw new Error(
+          'Large file upload requires VITE_PARSER_DIRECT_URL and VITE_PARSER_API_KEY. ' +
+          'Set both environment variables and rebuild the frontend.'
+        );
+      }
+      apiKeyToUse = directApiKey;
+      
+      console.log('[ParserClient] Large file detected, using direct URL:', uploadUrl, 'Size:', file.size, 'bytes');
+    } else {
+      // Normal file: use existing logic (proxy in production, direct in dev)
+      uploadUrl = `${this.baseUrl}/parse`;
+      uploadMethod = this.useProxy ? 'proxy' : 'direct';
+      
+      // If not using proxy, API key is required
+      if (!this.useProxy && !this.apiKey) {
+        throw new Error(
+          'Missing API key for parser service. Set VITE_PARSER_API_KEY (Vite client env var) ' +
+          'to match the parser backend API_KEY, then restart/rebuild the frontend.'
+        );
+      }
+      apiKeyToUse = this.useProxy ? undefined : this.apiKey;
+      
+      console.log('[ParserClient] Uploading file to:', uploadUrl, 'Size:', file.size, 'bytes', uploadMethod === 'proxy' ? '(via proxy)' : '(direct)');
     }
 
     const formData = new FormData();
     formData.append('file', file);
-
-    const url = `${this.baseUrl}/parse`;
-    console.log('[ParserClient] Uploading file to:', url, 'Size:', file.size, 'bytes', this.useProxy ? '(via proxy)' : '(direct)');
 
     return new Promise<ParseJobResponse>((resolve, reject) => {
       const xhr = new XMLHttpRequest();
@@ -134,11 +168,12 @@ export class ParserClient {
 
       // Handle errors
       xhr.addEventListener('error', () => {
+        const targetUrl = useDirectForLarge ? directUrl : this.baseUrl;
         reject(new Error(
-          `Cannot connect to parser service at ${this.baseUrl}. ` +
+          `Cannot connect to parser service at ${targetUrl}. ` +
           `Please check:\n` +
           `1. Parser service is running (npm run dev in silkcards-parser/server)\n` +
-          `2. VITE_PARSER_BASE_URL is set correctly in frontend/.env file\n` +
+          `2. VITE_PARSER_BASE_URL or VITE_PARSER_DIRECT_URL is set correctly in frontend/.env file\n` +
           `3. Firewall allows connections to the parser service port`
         ));
       });
@@ -148,11 +183,11 @@ export class ParserClient {
       });
 
       // Start upload
-      xhr.open('POST', url);
+      xhr.open('POST', uploadUrl);
       
-      // Set headers - only send API key when not using proxy (proxy handles it server-side)
-      if (!this.useProxy && this.apiKey) {
-        xhr.setRequestHeader('x-api-key', this.apiKey);
+      // Set headers - send API key for direct uploads (proxy handles it server-side)
+      if (apiKeyToUse) {
+        xhr.setRequestHeader('x-api-key', apiKeyToUse);
       }
 
       xhr.send(formData);
