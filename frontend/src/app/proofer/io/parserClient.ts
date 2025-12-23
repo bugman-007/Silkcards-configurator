@@ -68,7 +68,7 @@ export class ParserClient {
       console.warn('[ParserClient]');
       console.warn('[ParserClient] To fix:');
       console.warn('[ParserClient] 1. Create/update frontend/.env file with:');
-      console.warn('[ParserClient]    VITE_PARSER_BASE_URL=http://54.198.104.149:8080');
+      console.warn('[ParserClient]    VITE_PARSER_BASE_URL=https://silkcards-parser.duckdns.org');
       console.warn('[ParserClient]    VITE_PARSER_API_KEY=your-api-key-here');
       console.warn('[ParserClient] 2. Restart the Vite dev server (npm run dev)');
       console.warn('[ParserClient] 3. Vite only loads .env files on startup');

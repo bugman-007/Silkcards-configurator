@@ -13,7 +13,7 @@ import * as http from 'http';
 import * as https from 'https';
 import { URL } from 'url';
 
-const PARSER_BASE_URL = process.env.PARSER_BASE_URL || 'http://54.198.104.149:8080';
+const PARSER_BASE_URL = process.env.PARSER_BASE_URL || 'https://silkcards-parser.duckdns.org';
 const PARSER_API_KEY = process.env.PARSER_API_KEY || '';
 const PROXY_TIMEOUT_MS = 300000; // 5 minutes for large file uploads
 
