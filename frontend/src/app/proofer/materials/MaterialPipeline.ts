@@ -15,9 +15,19 @@ export class MaterialPipeline {
    * @returns THREE.ShaderMaterial configured with mask-driven shader
    */
   static createCardMaterial(options: {
+    artworkFrontMap?: THREE.Texture;
+    artworkBackMap?: THREE.Texture;
     frontArtwork?: THREE.Texture;
     backArtwork?: THREE.Texture;
     artwork?: THREE.Texture; // Deprecated: use frontArtwork/backArtwork
+    foilMaskFront?: THREE.Texture;
+    uvMaskFront?: THREE.Texture;
+    embossMaskFront?: THREE.Texture;
+    dieCutMaskFront?: THREE.Texture;
+    foilMaskBack?: THREE.Texture;
+    uvMaskBack?: THREE.Texture;
+    embossMaskBack?: THREE.Texture;
+    dieCutMaskBack?: THREE.Texture;
     foilMask?: THREE.Texture;
     uvMask?: THREE.Texture;
     embossMask?: THREE.Texture;
@@ -25,8 +35,8 @@ export class MaterialPipeline {
   }): THREE.ShaderMaterial {
     // Create placeholder artwork textures if not provided
     const defaultArtwork = MaterialPipeline.createPlaceholderTexture(512, 512, new THREE.Color(0.8, 0.8, 0.9));
-    const frontArtwork = options.frontArtwork || options.artwork || defaultArtwork;
-    const backArtwork = options.backArtwork || options.artwork || defaultArtwork;
+    const frontArtwork = options.artworkFrontMap || options.frontArtwork || options.artwork || defaultArtwork;
+    const backArtwork = options.artworkBackMap || options.backArtwork || options.artwork || defaultArtwork;
     
     // DEBUG: Verify textures are distinct
     console.log('[MaterialPipeline] Texture UUIDs:', {
@@ -36,10 +46,11 @@ export class MaterialPipeline {
     });
     
     // Create placeholder masks (black = no effect) if not provided
-    const foilMask = options.foilMask || MaterialPipeline.createPlaceholderTexture(512, 512, new THREE.Color(0, 0, 0));
-    const uvMask = options.uvMask || MaterialPipeline.createPlaceholderTexture(512, 512, new THREE.Color(0, 0, 0));
-    const embossMask = options.embossMask || MaterialPipeline.createPlaceholderTexture(512, 512, new THREE.Color(0, 0, 0));
-    const dieCutMask = options.dieCutMask || MaterialPipeline.createPlaceholderTexture(512, 512, new THREE.Color(0, 0, 0));
+    const maskPlaceholder = MaterialPipeline.createPlaceholderTexture(512, 512, new THREE.Color(0, 0, 0), THREE.NoColorSpace);
+    const foilMask = options.foilMaskFront || options.foilMask || maskPlaceholder;
+    const uvMask = options.uvMaskFront || options.uvMask || maskPlaceholder;
+    const embossMask = options.embossMaskFront || options.embossMask || maskPlaceholder;
+    const dieCutMask = options.dieCutMaskFront || options.dieCutMask || maskPlaceholder;
 
     // Create shader material
     // Note: Three.js automatically maps geometry attributes to shader attributes when names match
@@ -82,6 +93,11 @@ export class MaterialPipeline {
         embossStrength: { value: 0.12 },
         embossMode: { value: 1.0 }, // +1.0 for emboss (raised), -1.0 for deboss (indented)
         dieCutEnabled: { value: false },
+        
+        // Debug flags (dev-only)
+        showFaceId: { value: false },
+        showPrintOnly: { value: false },
+        showFoilOnly: { value: false },
 
         // Lighting uniforms
         uLightDirection: { value: new THREE.Vector3(0, 0, 1) },
@@ -240,6 +256,21 @@ export class MaterialPipeline {
       material.uniforms.dieCutEnabled.value = enabled;
     }
     material.needsUpdate = true;
+  }
+
+  static updateDebugFlags(
+    material: THREE.ShaderMaterial,
+    flags: { showFaceId?: boolean; showPrintOnly?: boolean; showFoilOnly?: boolean }
+  ): void {
+    if (material.uniforms.showFaceId && typeof flags.showFaceId === 'boolean') {
+      material.uniforms.showFaceId.value = flags.showFaceId;
+    }
+    if (material.uniforms.showPrintOnly && typeof flags.showPrintOnly === 'boolean') {
+      material.uniforms.showPrintOnly.value = flags.showPrintOnly;
+    }
+    if (material.uniforms.showFoilOnly && typeof flags.showFoilOnly === 'boolean') {
+      material.uniforms.showFoilOnly.value = flags.showFoilOnly;
+    }
   }
 
   /**

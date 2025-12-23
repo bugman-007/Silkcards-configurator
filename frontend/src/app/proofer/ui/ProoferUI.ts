@@ -63,7 +63,10 @@ export class ProoferUI {
     // Start with black placeholder masks (no effect)
     // Parser masks will override these when payload is loaded
     // DO NOT load demo masks - parser is the source of truth
-    const blackMask = ResourceManager.createPlaceholderTexture(512, 512, new THREE.Color(0, 0, 0));
+    const blackMask = ResourceManager.createPlaceholderTexture(512, 512, new THREE.Color(0, 0, 0), THREE.NoColorSpace);
+    blackMask.generateMipmaps = false;
+    blackMask.minFilter = THREE.LinearFilter;
+    blackMask.magFilter = THREE.LinearFilter;
 
     // Start with white texture (will be updated by EngineBridge from state)
     const artworkTexture = ResourceManager.createPlaceholderTexture(512, 512, new THREE.Color(1.0, 1.0, 1.0));

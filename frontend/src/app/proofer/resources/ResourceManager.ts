@@ -58,17 +58,32 @@ export class ResourceManager {
   /**
    * Load texture
    */
-  static async loadTexture(path: string): Promise<THREE.Texture> {
+  static async loadTexture(
+    path: string,
+    options?: {
+      colorSpace?: THREE.ColorSpace;
+      flipY?: boolean;
+      generateMipmaps?: boolean;
+      minFilter?: THREE.TextureFilter;
+      magFilter?: THREE.TextureFilter;
+    }
+  ): Promise<THREE.Texture> {
     if (!this.isInitialized) {
       await this.init();
     }
 
     // Rewrite HTTP asset URLs to use proxy in production (avoid mixed content)
     const rewrittenPath = rewriteAssetUrl(path);
-    
+    const colorSpace = options?.colorSpace ?? THREE.SRGBColorSpace;
+    const flipY = options?.flipY ?? false;
+    const generateMipmaps = options?.generateMipmaps ?? true;
+    const minFilter = options?.minFilter ?? THREE.LinearMipmapLinearFilter;
+    const magFilter = options?.magFilter ?? THREE.LinearFilter;
+    const cacheKey = `${rewrittenPath}|cs:${colorSpace}|fy:${flipY}|mm:${generateMipmaps}|min:${minFilter}|mag:${magFilter}`;
+
     // Use rewritten path for caching
-    if (this.loadedTextures.has(rewrittenPath)) {
-      return this.loadedTextures.get(rewrittenPath)!;
+    if (this.loadedTextures.has(cacheKey)) {
+      return this.loadedTextures.get(cacheKey)!;
     }
 
     if (!this.textureLoader) {
@@ -79,10 +94,13 @@ export class ResourceManager {
       this.textureLoader!.load(
         rewrittenPath,
         (texture) => {
-          texture.flipY = false;
-          texture.colorSpace = THREE.SRGBColorSpace;
-          // Cache by rewritten path
-          this.loadedTextures.set(rewrittenPath, texture);
+          texture.flipY = flipY;
+          texture.colorSpace = colorSpace;
+          texture.generateMipmaps = generateMipmaps;
+          texture.minFilter = minFilter;
+          texture.magFilter = magFilter;
+          // Cache by rewritten path + options
+          this.loadedTextures.set(cacheKey, texture);
           resolve(texture);
         },
         undefined,
@@ -98,7 +116,12 @@ export class ResourceManager {
    * Load mask texture
    */
   static async loadMask(path: string): Promise<THREE.Texture> {
-    return this.loadTexture(path);
+    return this.loadTexture(path, {
+      colorSpace: THREE.NoColorSpace,
+      generateMipmaps: false,
+      minFilter: THREE.LinearFilter,
+      magFilter: THREE.LinearFilter
+    });
   }
 
   /**
@@ -131,7 +154,7 @@ export class ResourceManager {
       } catch (error) {
         console.warn(`Failed to load ${key} mask, using placeholder:`, error);
         // Create black placeholder (no effect)
-        const placeholder = this.createPlaceholderTexture(512, 512, new THREE.Color(0, 0, 0));
+        const placeholder = this.createPlaceholderTexture(512, 512, new THREE.Color(0, 0, 0), THREE.NoColorSpace);
         this.maskTextures.set(key, placeholder);
       }
     });
@@ -170,7 +193,8 @@ export class ResourceManager {
   static createPlaceholderTexture(
     width: number = 512,
     height: number = 512,
-    color: THREE.Color = new THREE.Color(0.5, 0.5, 0.5)
+    color: THREE.Color = new THREE.Color(0.5, 0.5, 0.5),
+    colorSpace: THREE.ColorSpace = THREE.SRGBColorSpace
   ): THREE.Texture {
     const canvas = document.createElement('canvas');
     canvas.width = width;
@@ -181,7 +205,7 @@ export class ResourceManager {
     ctx.fillRect(0, 0, width, height);
 
     const texture = new THREE.CanvasTexture(canvas);
-    texture.colorSpace = THREE.SRGBColorSpace;
+    texture.colorSpace = colorSpace;
     return texture;
   }
 

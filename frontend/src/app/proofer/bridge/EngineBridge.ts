@@ -55,6 +55,7 @@ export class EngineBridge {
     if (state.parserPayload) {
       this.updateFromParserPayload(state);
     } else {
+      this.updateDebugFlags();
       // Update option toggles
       MaterialPipeline.updateFoil(this.material, state.optionStates.foil.enabled);
       MaterialPipeline.updateUV(this.material, state.optionStates.uv.enabled);
@@ -84,6 +85,7 @@ export class EngineBridge {
     console.log('[Proofer] Updating from parser payload');
 
     // Update option toggle flags first
+    this.updateDebugFlags();
     MaterialPipeline.updateFoil(this.material, state.optionStates.foil.enabled);
     MaterialPipeline.updateUV(this.material, state.optionStates.uv.enabled);
     
@@ -101,7 +103,7 @@ export class EngineBridge {
     // Clear masks for disabled options BEFORE loading parser masks
     // This ensures disabled effects don't show residual textures
     // Enabled options will have their masks overwritten by parser masks below
-    const blackMask = ResourceManager.createPlaceholderTexture(512, 512, new THREE.Color(0, 0, 0));
+    const blackMask = this.createMaskPlaceholder();
     if (!state.optionStates.foil.enabled) {
       this.updateMaterialTexture('foil', blackMask);
       console.log('[EngineBridge] Foil disabled - cleared mask');
@@ -266,7 +268,7 @@ export class EngineBridge {
       await this.composeAndApplyMask(payload, 'DIECUT_MASK', 'diecut', 'back', currentSide, state, cardSize);
     } else {
       // Disable diecut on both sides with black mask
-      const blackMask = ResourceManager.createPlaceholderTexture(512, 512, new THREE.Color(0, 0, 0));
+      const blackMask = this.createMaskPlaceholder();
       this.updateMaterialTexture('diecut', blackMask, 'front');
       this.updateMaterialTexture('diecut', blackMask, 'back');
       // Reset UV transform to full card (no cropping)
@@ -360,11 +362,10 @@ export class EngineBridge {
     // If no parser masks exist for this effect/side, use black placeholder (no effect)
     // DO NOT fall back to demo masks - parser is source of truth
     if (plates.length === 0) {
-      // Only apply black placeholder if this is the enabled side
-      // Masks are global uniforms (one per effect type), so apply for enabled side only
-      if (optionState.enabled && optionState.side === side) {
+      // Only apply black placeholder on front (finishes are front-only for now)
+      if (optionState.enabled && side === 'front') {
         console.log(`[EngineBridge] No ${target} parser mask found for ${side}, using black placeholder (no effect)`);
-        const blackMask = ResourceManager.createPlaceholderTexture(512, 512, new THREE.Color(0, 0, 0));
+        const blackMask = this.createMaskPlaceholder();
         this.updateMaterialTexture(target, blackMask, side);
         // Reset UV transform to full card (no cropping)
         this.updateMaskUvTransform(target, new THREE.Vector2(0, 0), new THREE.Vector2(1, 1));
@@ -418,10 +419,8 @@ export class EngineBridge {
       sizePx: firstPlate.sizePx
     });
 
-    // Apply parser mask when enabled and this is the enabled side
-    // Masks are global uniforms (one per effect type), so we apply the mask for the enabled side
-    // Shader uses the same mask for both faces, but the effect is controlled by enabled flag
-    if (optionState.enabled && optionState.side === side) {
+    // Apply parser mask when enabled on the front face (back masks can be added later)
+    if (optionState.enabled && side === 'front') {
       console.log(`[EngineBridge] Applying ${target} parser mask for enabled side: ${side}`);
       this.updateMaterialTexture(target, composed, side);
       this.updateMaskUvTransform(target, uvTransform.offset, uvTransform.scale);
@@ -440,9 +439,9 @@ export class EngineBridge {
     // If no parser emboss maps exist for this side, use black placeholder (no effect)
     // DO NOT fall back to demo masks - parser is source of truth
     if (plates.length === 0) {
-      if (state.optionStates.emboss.enabled && state.optionStates.emboss.side === side) {
+      if (state.optionStates.emboss.enabled && side === 'front') {
         console.log(`[EngineBridge] No emboss map found for ${side}, using black placeholder (effect disabled)`);
-        const blackMask = ResourceManager.createPlaceholderTexture(512, 512, new THREE.Color(0, 0, 0));
+        const blackMask = this.createMaskPlaceholder();
         this.updateMaterialTexture('emboss', blackMask, side);
         // Reset UV transform to full card (no cropping)
         this.updateMaskUvTransform('emboss', new THREE.Vector2(0, 0), new THREE.Vector2(1, 1));
@@ -489,7 +488,7 @@ export class EngineBridge {
     if (urls.length === 0) {
       if (state.optionStates.emboss.enabled && state.optionStates.emboss.side === side) {
         console.log(`[EngineBridge] No emboss assets found for ${side}, using black placeholder`);
-        const blackMask = ResourceManager.createPlaceholderTexture(512, 512, new THREE.Color(0, 0, 0));
+        const blackMask = this.createMaskPlaceholder();
         this.updateMaterialTexture('emboss', blackMask, side);
         // Reset UV transform to full card (no cropping)
         this.updateMaskUvTransform('emboss', new THREE.Vector2(0, 0), new THREE.Vector2(1, 1));
@@ -519,7 +518,7 @@ export class EngineBridge {
 
     // Always apply parser emboss maps when enabled and side matches
     // Shader will use correct texture based on vFaceType
-    if (state.optionStates.emboss.enabled && state.optionStates.emboss.side === side) {
+    if (state.optionStates.emboss.enabled && side === 'front') {
       this.updateMaterialTexture('emboss', composed, side);
       this.updateMaskUvTransform('emboss', uvTransform.offset, uvTransform.scale);
     }
@@ -535,11 +534,15 @@ export class EngineBridge {
     if (cached) return cached;
 
     // Load all source textures first (in stable order)
-    const textures = await Promise.all(urls.map((u) => ResourceManager.loadTexture(u)));
+    const textures = await Promise.all(
+      urls.map((u) => (mode === 'max' ? ResourceManager.loadMask(u) : ResourceManager.loadTexture(u)))
+    );
     const images = textures.map(t => t.image as any).filter(Boolean);
     if (images.length === 0) {
       // Fallback: black (no effect)
-      return ResourceManager.createPlaceholderTexture(512, 512, new THREE.Color(0, 0, 0));
+      return mode === 'max'
+        ? this.createMaskPlaceholder()
+        : ResourceManager.createPlaceholderTexture(512, 512, new THREE.Color(0, 0, 0));
     }
 
     const w = images[0].width || images[0].naturalWidth;
@@ -573,7 +576,12 @@ export class EngineBridge {
 
     const outTex = new THREE.CanvasTexture(canvas);
     outTex.flipY = false;
-    outTex.colorSpace = THREE.SRGBColorSpace;
+    outTex.colorSpace = mode === 'max' ? THREE.NoColorSpace : THREE.SRGBColorSpace;
+    if (mode === 'max') {
+      outTex.generateMipmaps = false;
+      outTex.minFilter = THREE.LinearFilter;
+      outTex.magFilter = THREE.LinearFilter;
+    }
     outTex.needsUpdate = true;
 
     this.composedTextures.set(signature, outTex);
@@ -599,7 +607,10 @@ export class EngineBridge {
     }
 
     try {
-      const texture = await ResourceManager.loadTexture(url);
+      const isMask = type !== 'artwork';
+      const texture = isMask
+        ? await ResourceManager.loadMask(url)
+        : await ResourceManager.loadTexture(url);
       
       // Set flipY for UV and emboss masks (as per previous fix)
       if ((type === 'uv' || type === 'emboss') && !isHeightMap) {
@@ -616,7 +627,9 @@ export class EngineBridge {
     } catch (error) {
       console.error(`[Proofer] Failed to load texture for ${type} (${side}):`, error);
       // Use placeholder on error
-      const placeholder = ResourceManager.createPlaceholderTexture(512, 512, new THREE.Color(0, 0, 0));
+      const placeholder = type === 'artwork'
+        ? ResourceManager.createPlaceholderTexture(512, 512, new THREE.Color(0.5, 0.5, 0.5))
+        : this.createMaskPlaceholder();
       this.updateMaterialTexture(type, placeholder, side);
     }
   }
@@ -687,6 +700,23 @@ export class EngineBridge {
     }
   }
 
+  private createMaskPlaceholder(): THREE.Texture {
+    const tex = ResourceManager.createPlaceholderTexture(512, 512, new THREE.Color(0, 0, 0), THREE.NoColorSpace);
+    tex.generateMipmaps = false;
+    tex.minFilter = THREE.LinearFilter;
+    tex.magFilter = THREE.LinearFilter;
+    return tex;
+  }
+
+  private updateDebugFlags(): void {
+    const debugFlags = (window as any).__PROOFER_DEBUG__ || {};
+    MaterialPipeline.updateDebugFlags(this.material, {
+      showFaceId: !!debugFlags.showFaceId,
+      showPrintOnly: !!debugFlags.showPrintOnly,
+      showFoilOnly: !!debugFlags.showFoilOnly
+    });
+  }
+
   /**
    * Update textures from assigned plates
    */
@@ -718,7 +748,7 @@ export class EngineBridge {
         }
       } else {
         // Use default black mask (no effect)
-        const defaultMask = ResourceManager.createPlaceholderTexture(512, 512, new THREE.Color(0, 0, 0));
+        const defaultMask = this.createMaskPlaceholder();
         this.updateMaterialTexture(option, defaultMask, state.viewSide);
       }
     }
@@ -850,3 +880,4 @@ export class EngineBridge {
     this.composedTextures.clear();
   }
 }
+

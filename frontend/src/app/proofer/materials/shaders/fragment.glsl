@@ -39,6 +39,11 @@ uniform float embossStrength;
 uniform float embossMode; // +1.0 for emboss (raised), -1.0 for deboss (indented)
 uniform bool dieCutEnabled;
 
+// Debug flags (dev-only)
+uniform bool showFaceId;
+uniform bool showPrintOnly;
+uniform bool showFoilOnly;
+
 // Lighting uniforms
 uniform vec3 uLightDirection;
 uniform vec3 uLightColor;
@@ -66,16 +71,31 @@ vec4 sampleCropped(sampler2D tex, vec2 uv, vec2 offset, vec2 scale) {
 }
 
 void main() {
+    bool isFront = vFaceType < 0.5;
+    bool isBack = vFaceType > 0.5 && vFaceType < 1.5;
+    vec2 frontUv = vUv;
+    vec2 backUv = vec2(1.0 - vUv.x, vUv.y);
+    vec2 faceUv = isBack ? backUv : frontUv;
+
+    if (showFaceId) {
+        if (isFront) {
+            gl_FragColor = vec4(1.0, 0.0, 0.0, 1.0);
+        } else if (isBack) {
+            gl_FragColor = vec4(0.0, 0.0, 1.0, 1.0);
+        } else {
+            gl_FragColor = vec4(0.0, 1.0, 0.0, 1.0);
+        }
+        return;
+    }
     // --- Die-cut discard ---
     // Must execute before any color accumulation
     if (dieCutEnabled) {
-        // Flip UV horizontally: (1.0 - vUv.x, vUv.y)
-        vec2 dieCutUv = vec2(1.0 - vUv.x, vUv.y);
-        vec4 dieCutTex = sampleCropped(dieCutMask, dieCutUv, dieCutUvOffset, dieCutUvScale);
+        // Use face UV (mirrored for back). For now, apply to front only.
+        vec4 dieCutTex = sampleCropped(dieCutMask, faceUv, dieCutUvOffset, dieCutUvScale);
         float cutVal = dieCutTex.r;
         
-        // White (1.0) = hole → discard fragment
-        if (cutVal > 0.5) {
+        // White (1.0) = hole -> discard fragment
+        if (isFront && cutVal > 0.5) {
             discard;
         }
     }
@@ -97,10 +117,10 @@ void main() {
     // Production code: Sample textures based on face type
     if (vFaceType < 0.5) {
         // Front face uses front artwork
-        artworkColor = texture2D(frontArtworkMap, vUv);
+        artworkColor = texture2D(frontArtworkMap, frontUv);
     } else if (vFaceType < 1.5) {
         // Back face uses back artwork
-        artworkColor = texture2D(backArtworkMap, vUv);
+        artworkColor = texture2D(backArtworkMap, backUv);
     } else {
         // Edge faces - use white/edge color
         artworkColor = vec4(1.0, 1.0, 1.0, 1.0);
@@ -125,8 +145,8 @@ void main() {
     float embossHeight = 0.0;
     
     // Apply emboss/deboss normal perturbation on front or back face
-    if ((vFaceType == 0.0 || vFaceType == 1.0) && embossEnabled) {
-        vec4 embossTex = sampleCropped(embossMask, vUv, embossUvOffset, embossUvScale);
+    if (isFront && embossEnabled) {
+        vec4 embossTex = sampleCropped(embossMask, faceUv, embossUvOffset, embossUvScale);
         float h = embossTex.r;
         embossHeight = h;
         
@@ -134,8 +154,8 @@ void main() {
         // Use card UV space for texel calculation
         vec2 texel = vec2(1.0 / 1024.0, 1.0 / 1024.0);
         
-        vec4 embossTexR = sampleCropped(embossMask, vUv + vec2(texel.x, 0.0), embossUvOffset, embossUvScale);
-        vec4 embossTexU = sampleCropped(embossMask, vUv + vec2(0.0, texel.y), embossUvOffset, embossUvScale);
+        vec4 embossTexR = sampleCropped(embossMask, faceUv + vec2(texel.x, 0.0), embossUvOffset, embossUvScale);
+        vec4 embossTexU = sampleCropped(embossMask, faceUv + vec2(0.0, texel.y), embossUvOffset, embossUvScale);
         float hR = embossTexR.r;
         float hU = embossTexU.r;
         
@@ -162,7 +182,7 @@ void main() {
     float embossAmbientBoost = 0.0;
     
     // Add emboss enhancement for visibility from all angles
-    if ((vFaceType == 0.0 || vFaceType == 1.0) && embossEnabled && embossHeight > 0.01) {
+    if (isFront && embossEnabled && embossHeight > 0.01) {
         // Height-based shading: raised areas get brighter, recessed areas darker
         // This creates depth perception independent of light direction
         float heightFactor = (embossHeight - 0.5) * embossMode; // -0.5 to +0.5 range
@@ -182,15 +202,25 @@ void main() {
     
     // Combine base lighting
     vec3 litColor = baseColor * (ambient + diffuse);
+
+    if (showPrintOnly) {
+        gl_FragColor = vec4(litColor, 1.0);
+        return;
+    }
+
+    if (showFoilOnly) {
+        float maskValue = sampleCropped(foilMask, faceUv, foilUvOffset, foilUvScale).r;
+        gl_FragColor = vec4(vec3(maskValue), 1.0);
+        return;
+    }
     
-    // Apply finish effects on front or back face (not on edges)
+    // Apply finish effects on front face only (back masks can be added later)
     // vFaceType: 0.0 = front, 1.0 = back, 2.0 = edge
-    // Edges (vFaceType == 2.0) should never receive finish effects
-    if (vFaceType == 0.0 || vFaceType == 1.0) {
+    if (isFront) {
         
         // Apply foil effect (mask-driven metallic BRDF)
-        if (foilEnabled) {
-            vec4 foilTex = sampleCropped(foilMask, vUv, foilUvOffset, foilUvScale);
+        if (foilEnabled && isFront) {
+            vec4 foilTex = sampleCropped(foilMask, faceUv, foilUvOffset, foilUvScale);
             float foilMaskValue = foilTex.r;
             if (foilMaskValue > 0.5) {
                 // Metallic foil color (gold)
@@ -208,8 +238,8 @@ void main() {
         }
         
         // Apply UV gloss effect (mask-driven clearcoat) - uses perturbed normal
-        if (uvEnabled) {
-            vec4 uvTex = sampleCropped(uvMask, vUv, uvUvOffset, uvUvScale);
+        if (uvEnabled && isFront) {
+            vec4 uvTex = sampleCropped(uvMask, faceUv, uvUvOffset, uvUvScale);
             float uvMaskValue = uvTex.r;
             if (uvMaskValue > 0.01) {
                 vec3 halfDir = normalize(lightDir + viewDir);
@@ -244,4 +274,10 @@ void main() {
     
     gl_FragColor = vec4(litColor, 1.0);
 }
+
+
+
+
+
+
 
