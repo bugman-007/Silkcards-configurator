@@ -53,11 +53,13 @@ export class ParserClient {
     this.apiKey = envApiKey || '';
     
     // Log configuration for debugging
+    const isProduction = typeof window !== 'undefined' && window.location.protocol === 'https:';
     console.log('[ParserClient] Initialized with:', {
       baseUrl: this.baseUrl,
       hasApiKey: !!this.apiKey,
       envBaseUrl: envBaseUrl || '(not set - using default)',
       envApiKey: envApiKey ? '***' : '(not set)',
+      isProduction,
       allEnvKeys: Object.keys(import.meta.env).filter(k => k.startsWith('VITE_'))
     });
     
@@ -66,18 +68,40 @@ export class ParserClient {
       console.warn('[ParserClient] ⚠️ VITE_PARSER_BASE_URL not found in environment!');
       console.warn('[ParserClient] Current baseUrl:', this.baseUrl);
       console.warn('[ParserClient]');
-      console.warn('[ParserClient] To fix:');
-      console.warn('[ParserClient] 1. Create/update frontend/.env file with:');
-      console.warn('[ParserClient]    VITE_PARSER_BASE_URL=https://silkcards-parser.duckdns.org');
-      console.warn('[ParserClient]    VITE_PARSER_API_KEY=your-api-key-here');
-      console.warn('[ParserClient] 2. Restart the Vite dev server (npm run dev)');
-      console.warn('[ParserClient] 3. Vite only loads .env files on startup');
+      if (isProduction) {
+        console.warn('[ParserClient] To fix in Vercel:');
+        console.warn('[ParserClient] 1. Go to Vercel project settings > Environment Variables');
+        console.warn('[ParserClient] 2. Add: VITE_PARSER_BASE_URL=https://silkcards-parser.duckdns.org');
+        console.warn('[ParserClient] 3. Add: VITE_PARSER_API_KEY=your-api-key-here');
+        console.warn('[ParserClient] 4. Redeploy the application');
+      } else {
+        console.warn('[ParserClient] To fix locally:');
+        console.warn('[ParserClient] 1. Create/update frontend/.env file with:');
+        console.warn('[ParserClient]    VITE_PARSER_BASE_URL=https://silkcards-parser.duckdns.org');
+        console.warn('[ParserClient]    VITE_PARSER_API_KEY=your-api-key-here');
+        console.warn('[ParserClient] 2. Restart the Vite dev server (npm run dev)');
+        console.warn('[ParserClient] 3. Vite only loads .env files on startup');
+      }
     } else {
       console.log('[ParserClient] ✅ Using configured parser service:', this.baseUrl);
     }
     
     if (!this.apiKey) {
-      console.warn('[ParserClient] ⚠️ VITE_PARSER_API_KEY not set - uploads may fail');
+      if (isProduction) {
+        console.error('[ParserClient] ❌ VITE_PARSER_API_KEY not set in Vercel environment variables!');
+        console.error('[ParserClient] This will cause uploads to fail.');
+        console.error('[ParserClient]');
+        console.error('[ParserClient] IMPORTANT: Vite only exposes variables prefixed with VITE_ to client code.');
+        console.error('[ParserClient] You need to add VITE_PARSER_API_KEY (not PARSER_API_KEY) to Vercel.');
+        console.error('[ParserClient]');
+        console.error('[ParserClient] Steps to fix:');
+        console.error('[ParserClient] 1. Go to Vercel project settings > Environment Variables');
+        console.error('[ParserClient] 2. Add: VITE_PARSER_API_KEY=<your-api-key-value>');
+        console.error('[ParserClient] 3. Add: VITE_PARSER_BASE_URL=https://silkcards-parser.duckdns.org');
+        console.error('[ParserClient] 4. Redeploy the application');
+      } else {
+        console.warn('[ParserClient] ⚠️ VITE_PARSER_API_KEY not set - uploads may fail');
+      }
     }
   }
 
@@ -94,10 +118,19 @@ export class ParserClient {
   ): Promise<ParseJobResponse> {
     // API key is always required for direct uploads
     if (!this.apiKey) {
-      throw new Error(
-        'Missing API key for parser service. Set VITE_PARSER_API_KEY (Vite client env var) ' +
-        'to match the parser backend API_KEY, then restart/rebuild the frontend.'
-      );
+      const isProduction = typeof window !== 'undefined' && window.location.protocol === 'https:';
+      const errorMsg = isProduction
+        ? 'Missing API key for parser service.\n\n' +
+          'In Vercel, you need to add VITE_PARSER_API_KEY (not PARSER_API_KEY) to environment variables.\n' +
+          'Vite only exposes variables prefixed with VITE_ to client code.\n\n' +
+          'Steps to fix:\n' +
+          '1. Go to Vercel project settings > Environment Variables\n' +
+          '2. Add: VITE_PARSER_API_KEY=<your-api-key-value>\n' +
+          '3. Add: VITE_PARSER_BASE_URL=https://silkcards-parser.duckdns.org\n' +
+          '4. Redeploy the application'
+        : 'Missing API key for parser service. Set VITE_PARSER_API_KEY (Vite client env var) ' +
+          'to match the parser backend API_KEY, then restart/rebuild the frontend.';
+      throw new Error(errorMsg);
     }
 
     const formData = new FormData();
@@ -173,10 +206,19 @@ export class ParserClient {
   async getJobStatus(jobId: string): Promise<ParseJobStatus> {
     // API key is always required for direct requests
     if (!this.apiKey) {
-      throw new Error(
-        'Missing API key for parser service. Set VITE_PARSER_API_KEY (Vite client env var) ' +
-        'to match the parser backend API_KEY, then restart/rebuild the frontend.'
-      );
+      const isProduction = typeof window !== 'undefined' && window.location.protocol === 'https:';
+      const errorMsg = isProduction
+        ? 'Missing API key for parser service.\n\n' +
+          'In Vercel, you need to add VITE_PARSER_API_KEY (not PARSER_API_KEY) to environment variables.\n' +
+          'Vite only exposes variables prefixed with VITE_ to client code.\n\n' +
+          'Steps to fix:\n' +
+          '1. Go to Vercel project settings > Environment Variables\n' +
+          '2. Add: VITE_PARSER_API_KEY=<your-api-key-value>\n' +
+          '3. Add: VITE_PARSER_BASE_URL=https://silkcards-parser.duckdns.org\n' +
+          '4. Redeploy the application'
+        : 'Missing API key for parser service. Set VITE_PARSER_API_KEY (Vite client env var) ' +
+          'to match the parser backend API_KEY, then restart/rebuild the frontend.';
+      throw new Error(errorMsg);
     }
 
     const headers: HeadersInit = {};
