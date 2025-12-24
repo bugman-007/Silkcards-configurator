@@ -4,87 +4,60 @@ import fragmentShader from './shaders/fragment.glsl';
 
 /**
  * Material Pipeline - Proofer
- * Material pipeline with mask-driven finish effects for print-accurate proofer
- * All methods are static for decoupled usage
+ * Simplified per-face material pipeline
+ * Each material is for a specific face (front or back) of a specific ply
  */
 export class MaterialPipeline {
   /**
-   * Create a card material with mask-driven finish effects
+   * Create a card material for a specific face (front or back)
+   * No face detection needed - material is face-specific
    * 
-   * @param options - Texture options including artwork and finish masks
-   * @returns THREE.ShaderMaterial configured with mask-driven shader
+   * @param options - Texture options including print and finish masks
+   * @returns THREE.ShaderMaterial configured for the specified face
    */
   static createCardMaterial(options: {
-    artworkFrontMap?: THREE.Texture;
-    artworkBackMap?: THREE.Texture;
-    frontArtwork?: THREE.Texture;
-    backArtwork?: THREE.Texture;
-    artwork?: THREE.Texture; // Deprecated: use frontArtwork/backArtwork
-    foilMaskFront?: THREE.Texture;
-    uvMaskFront?: THREE.Texture;
-    embossMaskFront?: THREE.Texture;
-    dieCutMaskFront?: THREE.Texture;
-    foilMaskBack?: THREE.Texture;
-    uvMaskBack?: THREE.Texture;
-    embossMaskBack?: THREE.Texture;
-    dieCutMaskBack?: THREE.Texture;
-    foilMask?: THREE.Texture;
-    uvMask?: THREE.Texture;
-    embossMask?: THREE.Texture;
-    dieCutMask?: THREE.Texture;
+    isFront: boolean; // true for front face, false for back face
+    printMap?: THREE.Texture; // PRINT composite for this face
+    foilMask?: THREE.Texture; // FOIL mask for this face
+    uvMask?: THREE.Texture; // UV mask for this face
+    embossMask?: THREE.Texture; // EMBOSS mask for this face
+    diecutMask?: THREE.Texture; // DIECUT mask (shared or per-face)
   }): THREE.ShaderMaterial {
-    // Create placeholder artwork textures if not provided
-    const defaultArtwork = MaterialPipeline.createPlaceholderTexture(512, 512, new THREE.Color(0.8, 0.8, 0.9));
-    const frontArtwork = options.artworkFrontMap || options.frontArtwork || options.artwork || defaultArtwork;
-    const backArtwork = options.artworkBackMap || options.backArtwork || options.artwork || defaultArtwork;
-    
-    // DEBUG: Verify textures are distinct
-    console.log('[MaterialPipeline] Texture UUIDs:', {
-      front: frontArtwork?.uuid,
-      back: backArtwork?.uuid,
-      same: frontArtwork?.uuid === backArtwork?.uuid
-    });
-    
-    // Create placeholder masks (black = no effect) if not provided
+    // Create placeholder textures if not provided
+    const defaultPrint = MaterialPipeline.createPlaceholderTexture(512, 512, new THREE.Color(1.0, 1.0, 1.0));
     const maskPlaceholder = MaterialPipeline.createPlaceholderTexture(512, 512, new THREE.Color(0, 0, 0), THREE.NoColorSpace);
-    const foilMask = options.foilMaskFront || options.foilMask || maskPlaceholder;
-    const uvMask = options.uvMaskFront || options.uvMask || maskPlaceholder;
-    const embossMask = options.embossMaskFront || options.embossMask || maskPlaceholder;
-    const dieCutMask = options.dieCutMaskFront || options.dieCutMask || maskPlaceholder;
+    maskPlaceholder.generateMipmaps = false;
+    maskPlaceholder.minFilter = THREE.LinearFilter;
+    maskPlaceholder.magFilter = THREE.LinearFilter;
+
+    const printMap = options.printMap || defaultPrint;
+    const foilMask = options.foilMask || maskPlaceholder;
+    const uvMask = options.uvMask || maskPlaceholder;
+    const embossMask = options.embossMask || maskPlaceholder;
+    const diecutMask = options.diecutMask || maskPlaceholder;
 
     // Create shader material
-    // Note: Three.js automatically maps geometry attributes to shader attributes when names match
     const material = new THREE.ShaderMaterial({
       vertexShader,
       fragmentShader,
       uniforms: {
-        // Base artwork textures - separate for front and back
-        frontArtworkMap: { value: frontArtwork },
-        backArtworkMap: { value: backArtwork },
+        // Print texture for this face
+        uPrintMap: { value: printMap },
+
+        // Finish mask textures (per-face)
+        uFoilMask: { value: foilMask },
+        uUvMask: { value: uvMask },
+        uEmbossMask: { value: embossMask },
+        uDiecutMask: { value: diecutMask },
+
+        // Face identifier (0.0 = front, 1.0 = back)
+        uIsFront: { value: options.isFront ? 1.0 : 0.0 },
 
         // Base color tint (for stock preview)
         uBaseColor: { value: new THREE.Color(1.0, 1.0, 1.0) },
         
         // Edge color (for card edges)
         uEdgeColor: { value: new THREE.Color(1.0, 1.0, 1.0) },
-
-        // Finish mask textures
-        foilMask: { value: foilMask },
-        uvMask: { value: uvMask },
-        embossMask: { value: embossMask },
-        dieCutMask: { value: dieCutMask },
-        
-        // UV transforms for cropped masks (offset and scale in card UV space)
-        // offset = (rectPx.x0 / cardWidthPx, rectPx.y0 / cardHeightPx)
-        // scale = (sizePx.w / cardWidthPx, sizePx.h / cardHeightPx)
-        foilUvOffset: { value: new THREE.Vector2(0.0, 0.0) },
-        foilUvScale: { value: new THREE.Vector2(1.0, 1.0) },
-        uvUvOffset: { value: new THREE.Vector2(0.0, 0.0) },
-        uvUvScale: { value: new THREE.Vector2(1.0, 1.0) },
-        embossUvOffset: { value: new THREE.Vector2(0.0, 0.0) },
-        embossUvScale: { value: new THREE.Vector2(1.0, 1.0) },
-        dieCutUvOffset: { value: new THREE.Vector2(0.0, 0.0) },
-        dieCutUvScale: { value: new THREE.Vector2(1.0, 1.0) },
 
         // Finish toggles (boolean flags)
         foilEnabled: { value: false },
@@ -98,6 +71,7 @@ export class MaterialPipeline {
         showFaceId: { value: false },
         showPrintOnly: { value: false },
         showFoilOnly: { value: false },
+        showMaskOnly: { value: false }, // New: show mask visualizations
 
         // Lighting uniforms
         uLightDirection: { value: new THREE.Vector3(0, 0, 1) },
@@ -119,7 +93,8 @@ export class MaterialPipeline {
   static createPlaceholderTexture(
     width: number = 512,
     height: number = 512,
-    color: THREE.Color = new THREE.Color(0.5, 0.5, 0.5)
+    color: THREE.Color = new THREE.Color(0.5, 0.5, 0.5),
+    colorSpace: THREE.ColorSpace = THREE.SRGBColorSpace
   ): THREE.Texture {
     const canvas = document.createElement('canvas');
     canvas.width = width;
@@ -130,8 +105,78 @@ export class MaterialPipeline {
     ctx.fillRect(0, 0, width, height);
 
     const texture = new THREE.CanvasTexture(canvas);
-    texture.colorSpace = THREE.SRGBColorSpace;
+    texture.colorSpace = colorSpace;
     return texture;
+  }
+
+  /**
+   * Update print texture for this face
+   */
+  static updatePrintMap(
+    material: THREE.ShaderMaterial,
+    texture: THREE.Texture
+  ): void {
+    if (material.uniforms.uPrintMap) {
+      material.uniforms.uPrintMap.value = texture;
+      texture.needsUpdate = true;
+      material.needsUpdate = true;
+    }
+  }
+
+  /**
+   * Update foil mask texture
+   */
+  static updateFoilMask(
+    material: THREE.ShaderMaterial,
+    texture: THREE.Texture
+  ): void {
+    if (material.uniforms.uFoilMask) {
+      material.uniforms.uFoilMask.value = texture;
+      texture.needsUpdate = true;
+      material.needsUpdate = true;
+    }
+  }
+
+  /**
+   * Update UV mask texture
+   */
+  static updateUvMask(
+    material: THREE.ShaderMaterial,
+    texture: THREE.Texture
+  ): void {
+    if (material.uniforms.uUvMask) {
+      material.uniforms.uUvMask.value = texture;
+      texture.needsUpdate = true;
+      material.needsUpdate = true;
+    }
+  }
+
+  /**
+   * Update emboss mask texture
+   */
+  static updateEmbossMask(
+    material: THREE.ShaderMaterial,
+    texture: THREE.Texture
+  ): void {
+    if (material.uniforms.uEmbossMask) {
+      material.uniforms.uEmbossMask.value = texture;
+      texture.needsUpdate = true;
+      material.needsUpdate = true;
+    }
+  }
+
+  /**
+   * Update diecut mask texture
+   */
+  static updateDiecutMask(
+    material: THREE.ShaderMaterial,
+    texture: THREE.Texture
+  ): void {
+    if (material.uniforms.uDiecutMask) {
+      material.uniforms.uDiecutMask.value = texture;
+      texture.needsUpdate = true;
+      material.needsUpdate = true;
+    }
   }
 
   /**
@@ -144,7 +189,9 @@ export class MaterialPipeline {
     const threeColor = color instanceof THREE.Color 
       ? color 
       : new THREE.Color(color);
-    material.uniforms.uBaseColor.value = threeColor;
+    if (material.uniforms.uBaseColor) {
+      material.uniforms.uBaseColor.value = threeColor;
+    }
   }
 
   /**
@@ -258,9 +305,17 @@ export class MaterialPipeline {
     material.needsUpdate = true;
   }
 
+  /**
+   * Update debug flags
+   */
   static updateDebugFlags(
     material: THREE.ShaderMaterial,
-    flags: { showFaceId?: boolean; showPrintOnly?: boolean; showFoilOnly?: boolean }
+    flags: { 
+      showFaceId?: boolean; 
+      showPrintOnly?: boolean; 
+      showFoilOnly?: boolean;
+      showMaskOnly?: boolean;
+    }
   ): void {
     if (material.uniforms.showFaceId && typeof flags.showFaceId === 'boolean') {
       material.uniforms.showFaceId.value = flags.showFaceId;
@@ -271,74 +326,49 @@ export class MaterialPipeline {
     if (material.uniforms.showFoilOnly && typeof flags.showFoilOnly === 'boolean') {
       material.uniforms.showFoilOnly.value = flags.showFoilOnly;
     }
+    if (material.uniforms.showMaskOnly && typeof flags.showMaskOnly === 'boolean') {
+      material.uniforms.showMaskOnly.value = flags.showMaskOnly;
+    }
   }
 
   /**
-   * Update UV transform for foil mask (for cropped textures)
+   * UV Transform methods (legacy compatibility)
+   * NOTE: New architecture doesn't need UV transforms - textures are composited at full card size
+   * These are stubs for backward compatibility with old EngineBridge code
    */
   static updateFoilUvTransform(
     material: THREE.ShaderMaterial,
     offset: THREE.Vector2,
     scale: THREE.Vector2
   ): void {
-    if (material.uniforms.foilUvOffset) {
-      material.uniforms.foilUvOffset.value.copy(offset);
-    }
-    if (material.uniforms.foilUvScale) {
-      material.uniforms.foilUvScale.value.copy(scale);
-    }
-    material.needsUpdate = true;
+    // No-op: new architecture doesn't use UV transforms
+    console.warn('[MaterialPipeline] updateFoilUvTransform called but not needed in new architecture');
   }
 
-  /**
-   * Update UV transform for UV mask (for cropped textures)
-   */
   static updateUvUvTransform(
     material: THREE.ShaderMaterial,
     offset: THREE.Vector2,
     scale: THREE.Vector2
   ): void {
-    if (material.uniforms.uvUvOffset) {
-      material.uniforms.uvUvOffset.value.copy(offset);
-    }
-    if (material.uniforms.uvUvScale) {
-      material.uniforms.uvUvScale.value.copy(scale);
-    }
-    material.needsUpdate = true;
+    // No-op: new architecture doesn't use UV transforms
+    console.warn('[MaterialPipeline] updateUvUvTransform called but not needed in new architecture');
   }
 
-  /**
-   * Update UV transform for emboss mask (for cropped textures)
-   */
   static updateEmbossUvTransform(
     material: THREE.ShaderMaterial,
     offset: THREE.Vector2,
     scale: THREE.Vector2
   ): void {
-    if (material.uniforms.embossUvOffset) {
-      material.uniforms.embossUvOffset.value.copy(offset);
-    }
-    if (material.uniforms.embossUvScale) {
-      material.uniforms.embossUvScale.value.copy(scale);
-    }
-    material.needsUpdate = true;
+    // No-op: new architecture doesn't use UV transforms
+    console.warn('[MaterialPipeline] updateEmbossUvTransform called but not needed in new architecture');
   }
 
-  /**
-   * Update UV transform for die-cut mask (for cropped textures)
-   */
   static updateDieCutUvTransform(
     material: THREE.ShaderMaterial,
     offset: THREE.Vector2,
     scale: THREE.Vector2
   ): void {
-    if (material.uniforms.dieCutUvOffset) {
-      material.uniforms.dieCutUvOffset.value.copy(offset);
-    }
-    if (material.uniforms.dieCutUvScale) {
-      material.uniforms.dieCutUvScale.value.copy(scale);
-    }
-    material.needsUpdate = true;
+    // No-op: new architecture doesn't use UV transforms
+    console.warn('[MaterialPipeline] updateDieCutUvTransform called but not needed in new architecture');
   }
 }
-

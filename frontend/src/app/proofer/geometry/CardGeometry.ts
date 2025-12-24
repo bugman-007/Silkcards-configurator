@@ -10,24 +10,28 @@ export class CardGeometry {
   private _geometry: THREE.BufferGeometry;
   private width: number;
   private height: number;
-  private thickness: number;
+  private thickness: number; // Total thickness (will be divided by plyCount)
   private cornerRadius: number;
+  private plyCount: number; // Number of plies
   private cornerSegments: number = 8;
 
   /**
    * Constructor with options object
    * Uses dimensions as-is from the JSON (no hardcoded rotation)
+   * Supports multi-ply: creates separate front/back faces per ply with z-offsets
    */
   constructor(options: {
     width: number;
     height: number;
     thickness: number;
     cornerRadius: number;
+    plyCount?: number; // Number of plies (default: 1)
   }) {
     this.width = options.width;
     this.height = options.height;
     this.thickness = options.thickness;
     this.cornerRadius = options.cornerRadius;
+    this.plyCount = options.plyCount || 1;
     this._geometry = new THREE.BufferGeometry();
     this.buildGeometry();
   }
@@ -35,11 +39,14 @@ export class CardGeometry {
   /**
    * Update card dimensions and rebuild geometry
    */
-  updateDimensions(width: number, height: number, thickness: number, cornerRadius: number): void {
+  updateDimensions(width: number, height: number, thickness: number, cornerRadius: number, plyCount?: number): void {
     this.width = width;
     this.height = height;
     this.thickness = thickness;
     this.cornerRadius = cornerRadius;
+    if (plyCount !== undefined) {
+      this.plyCount = plyCount;
+    }
     this.rebuildGeometry();
   }
 
@@ -48,6 +55,150 @@ export class CardGeometry {
    */
   get geometry(): THREE.BufferGeometry {
     return this._geometry;
+  }
+
+  /**
+   * Create geometry for a specific ply/face combination
+   * Used in multi-ply architecture where each mesh needs its own geometry
+   * 
+   * @param plyIndex - The ply index (0, 1, 2, ...)
+   * @param face - 'front' or 'back'
+   * @returns A new BufferGeometry for this specific ply/face
+   */
+  createPlyFaceGeometry(plyIndex: number, face: 'front' | 'back'): THREE.BufferGeometry {
+    const positions: number[] = [];
+    const normals: number[] = [];
+    const uvs: number[] = [];
+    const indices: number[] = [];
+
+    const halfWidth = this.width / 2;
+    const halfHeight = this.height / 2;
+    const unitThickness = this.thickness / this.plyCount;
+    const totalHalfThickness = this.thickness / 2;
+
+    // Z-offset for this ply
+    const zOffset = -totalHalfThickness + (plyIndex + 0.5) * unitThickness;
+    const z = face === 'front' 
+      ? zOffset + unitThickness / 2  // Front face
+      : zOffset - unitThickness / 2;  // Back face
+
+    const normal: [number, number, number] = face === 'front' 
+      ? [0, 0, 1]   // Front normal
+      : [0, 0, -1]; // Back normal
+
+    // Build the face
+    this.buildFaceForPly(
+      positions,
+      normals,
+      uvs,
+      indices,
+      halfWidth,
+      halfHeight,
+      z,
+      normal
+    );
+
+    // Create geometry
+    const geometry = new THREE.BufferGeometry();
+    geometry.setAttribute('position', new THREE.Float32BufferAttribute(new Float32Array(positions), 3));
+    geometry.setAttribute('normal', new THREE.Float32BufferAttribute(new Float32Array(normals), 3));
+    geometry.setAttribute('uv', new THREE.Float32BufferAttribute(new Float32Array(uvs), 2));
+    
+    const maxIndexValue = indices.length > 0 ? Math.max(...indices) : 0;
+    const useUint32 = maxIndexValue > 65535;
+    const indexArray = useUint32 
+      ? new Uint32Array(indices) 
+      : new Uint16Array(indices);
+    geometry.setIndex(new THREE.BufferAttribute(indexArray, 1));
+
+    geometry.computeBoundingBox();
+    geometry.computeBoundingSphere();
+
+    return geometry;
+  }
+
+  /**
+   * Build a face for a specific ply (simplified version without faceType/plyIndex arrays)
+   */
+  private buildFaceForPly(
+    positions: number[],
+    normals: number[],
+    uvs: number[],
+    indices: number[],
+    halfWidth: number,
+    halfHeight: number,
+    z: number,
+    normal: [number, number, number]
+  ): void {
+    const startIndex = positions.length / 3;
+    const effectiveWidth = this.width;
+    const effectiveHeight = this.height;
+
+    // Generate outline points with rounded corners
+    const outlinePoints: Array<{ x: number; y: number; u: number; v: number }> = [];
+
+    // Top-right corner
+    for (let i = 0; i <= this.cornerSegments; i++) {
+      const angle = (Math.PI / 2) * (i / this.cornerSegments);
+      const x = halfWidth - this.cornerRadius + this.cornerRadius * Math.cos(angle);
+      const y = halfHeight - this.cornerRadius + this.cornerRadius * Math.sin(angle);
+      const u = (x + halfWidth) / effectiveWidth;
+      const v = (y + halfHeight) / effectiveHeight;
+      outlinePoints.push({ x, y, u, v });
+    }
+
+    // Top-left corner
+    for (let i = 0; i <= this.cornerSegments; i++) {
+      const angle = (Math.PI / 2) * (i / this.cornerSegments) + Math.PI / 2;
+      const x = -halfWidth + this.cornerRadius + this.cornerRadius * Math.cos(angle);
+      const y = halfHeight - this.cornerRadius + this.cornerRadius * Math.sin(angle);
+      const u = (x + halfWidth) / effectiveWidth;
+      const v = (y + halfHeight) / effectiveHeight;
+      outlinePoints.push({ x, y, u, v });
+    }
+
+    // Bottom-left corner
+    for (let i = 0; i <= this.cornerSegments; i++) {
+      const angle = (Math.PI / 2) * (i / this.cornerSegments) + Math.PI;
+      const x = -halfWidth + this.cornerRadius + this.cornerRadius * Math.cos(angle);
+      const y = -halfHeight + this.cornerRadius + this.cornerRadius * Math.sin(angle);
+      const u = (x + halfWidth) / effectiveWidth;
+      const v = (y + halfHeight) / effectiveHeight;
+      outlinePoints.push({ x, y, u, v });
+    }
+
+    // Bottom-right corner
+    for (let i = 0; i <= this.cornerSegments; i++) {
+      const angle = (Math.PI / 2) * (i / this.cornerSegments) + (3 * Math.PI) / 2;
+      const x = halfWidth - this.cornerRadius + this.cornerRadius * Math.cos(angle);
+      const y = -halfHeight + this.cornerRadius + this.cornerRadius * Math.sin(angle);
+      const u = (x + halfWidth) / effectiveWidth;
+      const v = (y + halfHeight) / effectiveHeight;
+      outlinePoints.push({ x, y, u, v });
+    }
+
+    // Add center vertex
+    positions.push(0, 0, z);
+    normals.push(...normal);
+    uvs.push(0.5, 0.5);
+
+    // Add outline vertices
+    for (const point of outlinePoints) {
+      positions.push(point.x, point.y, z);
+      normals.push(...normal);
+      uvs.push(point.u, point.v);
+    }
+
+    // Create triangles from center to outline
+    const numOutlineVerts = outlinePoints.length;
+    for (let i = 0; i < numOutlineVerts; i++) {
+      const next = (i + 1) % numOutlineVerts;
+      indices.push(
+        startIndex,
+        startIndex + 1 + i,
+        startIndex + 1 + next
+      );
+    }
   }
 
   /**
@@ -68,50 +219,67 @@ export class CardGeometry {
     const normals: number[] = [];
     const uvs: number[] = [];
     const faceTypes: number[] = []; // 0 = front, 1 = back, 2 = edge
+    const plyIndices: number[] = []; // Store ply index per vertex for material selection
     const indices: number[] = [];
 
     const halfWidth = this.width / 2;
     const halfHeight = this.height / 2;
-    const halfThickness = this.thickness / 2;
+    const unitThickness = this.thickness / this.plyCount; // Thickness per ply
+    const totalHalfThickness = this.thickness / 2;
 
-    // Build front face (facing +Z) - faceType = 0
-    this.buildFace(
-      positions,
-      normals,
-      uvs,
-      faceTypes,
-      indices,
-      halfWidth,
-      halfHeight,
-      halfThickness,
-      [0, 0, 1], // Normal pointing +Z
-      0.0 // Front face
-    );
+    // Build faces for each ply
+    // Each ply gets a front face and back face, stacked with z-offsets
+    for (let ply = 0; ply < this.plyCount; ply++) {
+      // Z-offset for this ply: center the stack, then offset each ply
+      const zOffset = -totalHalfThickness + (ply + 0.5) * unitThickness;
+      const zFront = zOffset + unitThickness / 2;
+      const zBack = zOffset - unitThickness / 2;
 
-    // Build back face (facing -Z) - faceType = 1
-    this.buildFace(
-      positions,
-      normals,
-      uvs,
-      faceTypes,
-      indices,
-      halfWidth,
-      halfHeight,
-      -halfThickness,
-      [0, 0, -1], // Normal pointing -Z
-      1.0 // Back face
-    );
+      // Build front face for this ply (facing +Z) - faceType = 0
+      this.buildFace(
+        positions,
+        normals,
+        uvs,
+        faceTypes,
+        plyIndices,
+        indices,
+        halfWidth,
+        halfHeight,
+        zFront,
+        [0, 0, 1], // Normal pointing +Z
+        0.0, // Front face
+        ply // Ply index
+      );
+
+      // Build back face for this ply (facing -Z) - faceType = 1
+      this.buildFace(
+        positions,
+        normals,
+        uvs,
+        faceTypes,
+        plyIndices,
+        indices,
+        halfWidth,
+        halfHeight,
+        zBack,
+        [0, 0, -1], // Normal pointing -Z
+        1.0, // Back face
+        ply // Ply index
+      );
+    }
 
     // Build side faces (thickness extrusion) - faceType = 2
+    // Only build sides for the outer edges of the stack
     this.buildSideFaces(
       positions,
       normals,
       uvs,
       faceTypes,
+      plyIndices,
       indices,
       halfWidth,
       halfHeight,
-      halfThickness
+      totalHalfThickness
     );
 
     // Calculate vertex count
@@ -132,6 +300,7 @@ export class CardGeometry {
     const normalAttr = this._geometry.getAttribute('normal') as THREE.BufferAttribute | null;
     const uvAttr = this._geometry.getAttribute('uv') as THREE.BufferAttribute | null;
     const faceTypeAttr = this._geometry.getAttribute('faceType') as THREE.BufferAttribute | null;
+    const plyIndexAttr = this._geometry.getAttribute('plyIndex') as THREE.BufferAttribute | null;
     const existingIndex = this._geometry.getIndex();
 
     // Create typed arrays
@@ -139,6 +308,7 @@ export class CardGeometry {
     const normalArray = new Float32Array(normals);
     const uvArray = new Float32Array(uvs);
     const faceTypeArray = new Float32Array(faceTypes);
+    const plyIndexArray = new Float32Array(plyIndices);
 
     // Determine if we need Uint16Array or Uint32Array for indices
     const maxIndexValue = indexCount > 0 ? Math.max(...indices) : 0;
@@ -192,6 +362,16 @@ export class CardGeometry {
       this._geometry.setAttribute('faceType', newAttr);
     }
 
+    // Update or recreate plyIndex attribute
+    if (plyIndexAttr && plyIndexAttr.count === vertexCount) {
+      (plyIndexAttr.array as Float32Array).set(plyIndexArray);
+      plyIndexAttr.needsUpdate = true;
+    } else {
+      if (plyIndexAttr) this._geometry.deleteAttribute('plyIndex');
+      const newAttr = new THREE.Float32BufferAttribute(plyIndexArray, 1);
+      this._geometry.setAttribute('plyIndex', newAttr);
+    }
+
     // Update or recreate index buffer
     if (existingIndex) {
       const existingIndexCount = existingIndex.count;
@@ -228,18 +408,21 @@ export class CardGeometry {
   /**
    * Build a face (front or back) with rounded corners
    * UVs are in 0-1 range, scaled to match card dimensions for artwork accuracy
+   * Each face is tagged with its ply index for material selection
    */
   private buildFace(
     positions: number[],
     normals: number[],
     uvs: number[],
     faceTypes: number[],
+    plyIndices: number[],
     indices: number[],
     halfWidth: number,
     halfHeight: number,
     z: number,
     normal: [number, number, number],
-    faceType: number
+    faceType: number,
+    plyIndex: number
   ): void {
     const startIndex = positions.length / 3;
     const effectiveWidth = this.width;
@@ -294,6 +477,7 @@ export class CardGeometry {
     normals.push(...normal);
     uvs.push(0.5, 0.5);
     faceTypes.push(faceType);
+    plyIndices.push(plyIndex);
 
     // Add outline vertices
     // Use dimensions as-is (no rotation) - respect width/height from JSON
@@ -302,6 +486,7 @@ export class CardGeometry {
       normals.push(...normal);
       uvs.push(point.u, point.v);
       faceTypes.push(faceType);
+      plyIndices.push(plyIndex);
     }
 
     // Create triangles from center to outline
@@ -319,12 +504,14 @@ export class CardGeometry {
   /**
    * Build side faces (thickness extrusion)
    * Edge faces use UVs (-1, -1) to prevent mask sampling
+   * Only builds outer edges of the ply stack
    */
   private buildSideFaces(
     positions: number[],
     normals: number[],
     uvs: number[],
     faceTypes: number[],
+    plyIndices: number[],
     indices: number[],
     halfWidth: number,
     halfHeight: number,
@@ -395,10 +582,12 @@ export class CardGeometry {
 
       // Front edge vertex (edge face - UVs set to -1 to prevent mask sampling)
       // Use dimensions as-is (no rotation)
+      // Edge connects outer front (top of stack) to outer back (bottom of stack)
       positions.push(front.x, front.y, halfThickness);
       normals.push(nx, ny, 0);
       uvs.push(-1.0, -1.0); // Out-of-range UVs for edges
       faceTypes.push(2.0); // Edge face type
+      plyIndices.push(0); // Edge belongs to outer ply
 
       // Back edge vertex (edge face - UVs set to -1 to prevent mask sampling)
       // Use dimensions as-is (no rotation)
@@ -406,6 +595,7 @@ export class CardGeometry {
       normals.push(nx, ny, 0);
       uvs.push(-1.0, -1.0); // Out-of-range UVs for edges
       faceTypes.push(2.0); // Edge face type
+      plyIndices.push(this.plyCount - 1); // Edge belongs to outer ply
     }
 
     // Create side face quads

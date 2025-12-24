@@ -15,7 +15,9 @@ import {
   CardSide,
   LayerType,
   ParserPayload,
-  ParserPlate
+  ParserPlate,
+  FaceStack,
+  PlyStack
 } from './ProoferState.js';
 
 export type ProoferListener = (state: ProoferState) => void;
@@ -239,6 +241,14 @@ export class ProoferController {
       this.state.cornerRadius = 5;
     }
     
+    // Get plyCount from payload
+    this.state.plyCount = payload.card?.plyCount || 1;
+    
+    // Build FaceStacks: organize plates by plyIndex and face
+    const faceStacks = this.buildFaceStacks(payload.plates);
+    this.state.faceStacks = faceStacks;
+    console.log(`[Proofer] Built FaceStacks for ${faceStacks.size} plies`);
+    
     // Convert parser plates to ParsedPlate format
     const parsedPlates: ParsedPlate[] = payload.plates.map(plate => {
       // Map parser plate type to our LayerType
@@ -275,6 +285,107 @@ export class ProoferController {
     this.notifyListeners();
   }
   
+  /**
+   * Build FaceStacks from parser plates
+   * Organizes plates by plyIndex (depthIndex) and face (front/back)
+   * This is the render data model that drives compositing
+   */
+  private buildFaceStacks(plates: ParserPlate[]): Map<number, PlyStack> {
+    const stacks = new Map<number, PlyStack>();
+
+    // Group plates by plyIndex (depthIndex)
+    const platesByPly = new Map<number, ParserPlate[]>();
+    for (const plate of plates) {
+      const plyIndex = plate.depthIndex ?? plate.physicalPlyIndex ?? 0;
+      if (!platesByPly.has(plyIndex)) {
+        platesByPly.set(plyIndex, []);
+      }
+      platesByPly.get(plyIndex)!.push(plate);
+    }
+
+    // Build PlyStack for each plyIndex
+    for (const [plyIndex, plyPlates] of platesByPly) {
+      const frontStack: FaceStack = {
+        prints: [],
+        foilMasks: [],
+        uvMasks: [],
+        embossMasks: [],
+        diecut: undefined
+      };
+      const backStack: FaceStack = {
+        prints: [],
+        foilMasks: [],
+        uvMasks: [],
+        embossMasks: [],
+        diecut: undefined
+      };
+
+      // Sort plates by side and type
+      for (const plate of plyPlates) {
+        const side = plate.face ?? plate.side;
+        const faceStack = side === 'front' ? frontStack : backStack;
+
+        switch (plate.type) {
+          case 'PRINT':
+            faceStack.prints.push(plate);
+            break;
+          case 'FOIL_MASK':
+            faceStack.foilMasks.push(plate);
+            break;
+          case 'SPOT_UV_MASK':
+            faceStack.uvMasks.push(plate);
+            break;
+          case 'EMBOSS':
+            faceStack.embossMasks.push(plate);
+            break;
+          case 'DIECUT_MASK':
+          case 'DIECUT_SVG':
+            // Only one diecut per face (prefer front if both exist)
+            if (!faceStack.diecut || side === 'front') {
+              faceStack.diecut = plate;
+            }
+            break;
+        }
+      }
+
+      // Sort each array deterministically (by layer number in ID, then by ID)
+      const sortPlates = (a: ParserPlate, b: ParserPlate) => {
+        const layerA = this.extractLayerNumber(a.id);
+        const layerB = this.extractLayerNumber(b.id);
+        if (layerA !== layerB) {
+          return layerA - layerB;
+        }
+        return a.id.localeCompare(b.id);
+      };
+
+      frontStack.prints.sort(sortPlates);
+      frontStack.foilMasks.sort(sortPlates);
+      frontStack.uvMasks.sort(sortPlates);
+      frontStack.embossMasks.sort(sortPlates);
+      backStack.prints.sort(sortPlates);
+      backStack.foilMasks.sort(sortPlates);
+      backStack.uvMasks.sort(sortPlates);
+      backStack.embossMasks.sort(sortPlates);
+
+      stacks.set(plyIndex, {
+        plyIndex,
+        front: frontStack,
+        back: backStack
+      });
+    }
+
+    return stacks;
+  }
+
+  /**
+   * Extract layer number from plate ID for deterministic sorting
+   * e.g., "front_layer_0_print" -> 0, "front_layer_1_print" -> 1
+   */
+  private extractLayerNumber(plateId: string): number {
+    const match = plateId.match(/_layer_(\d+)_/);
+    return match ? parseInt(match[1], 10) : 0;
+  }
+
   /**
    * Auto-map plates to options
    */

@@ -3,33 +3,25 @@ precision highp float;
 varying vec2 vUv;
 varying vec3 vNormal;
 varying vec3 vWorldPosition;
-varying float vFaceType;
+varying float vFaceType; // 0.0 = front, 1.0 = back, 2.0 = edge
 
-// Base artwork - separate textures for front and back
-uniform sampler2D frontArtworkMap;
-uniform sampler2D backArtworkMap;
+// Print texture for this face (no face detection needed - material is face-specific)
+uniform sampler2D uPrintMap;
+
+// Finish mask textures (per-face)
+uniform sampler2D uFoilMask;
+uniform sampler2D uUvMask;
+uniform sampler2D uEmbossMask;
+uniform sampler2D uDiecutMask;
+
+// Face identifier (0.0 = front, 1.0 = back) - set per material
+uniform float uIsFront;
 
 // Base color tint (for stock preview)
 uniform vec3 uBaseColor;
 
 // Edge color (for card edges)
 uniform vec3 uEdgeColor;
-
-// Finish mask textures
-uniform sampler2D foilMask;
-uniform sampler2D uvMask;
-uniform sampler2D embossMask;
-uniform sampler2D dieCutMask;
-
-// UV transforms for cropped masks (offset and scale in card UV space)
-uniform vec2 foilUvOffset;
-uniform vec2 foilUvScale;
-uniform vec2 uvUvOffset;
-uniform vec2 uvUvScale;
-uniform vec2 embossUvOffset;
-uniform vec2 embossUvScale;
-uniform vec2 dieCutUvOffset;
-uniform vec2 dieCutUvScale;
 
 // Finish toggles (boolean flags)
 uniform bool foilEnabled;
@@ -43,6 +35,7 @@ uniform bool dieCutEnabled;
 uniform bool showFaceId;
 uniform bool showPrintOnly;
 uniform bool showFoilOnly;
+uniform bool showMaskOnly;
 
 // Lighting uniforms
 uniform vec3 uLightDirection;
@@ -50,129 +43,75 @@ uniform vec3 uLightColor;
 uniform vec3 uAmbientColor;
 uniform vec3 uCameraPosition;
 
-/**
- * Sample a cropped texture with UV transform
- * @param tex - Texture sampler
- * @param uv - Card UV coordinates (0-1 across full card)
- * @param offset - UV offset (rectPx.x0/cardWidth, rectPx.y0/cardHeight)
- * @param scale - UV scale (sizePx.w/cardWidth, sizePx.h/cardHeight)
- * @returns Sampled color, or vec4(0.0) if UV is outside cropped bounds
- */
-vec4 sampleCropped(sampler2D tex, vec2 uv, vec2 offset, vec2 scale) {
-    // Transform card UV to local texture UV
-    vec2 localUV = (uv - offset) / scale;
-    
-    // Check if UV is within cropped bounds
-    if (localUV.x < 0.0 || localUV.x > 1.0 || localUV.y < 0.0 || localUV.y > 1.0) {
-        return vec4(0.0); // Outside bounds = no effect
-    }
-    
-    return texture2D(tex, localUV);
-}
-
 void main() {
-    bool isFront = vFaceType < 0.5;
-    bool isBack = vFaceType > 0.5 && vFaceType < 1.5;
-    
-    // Rotate UVs 180° to match texture orientation
-    // Rotate: (u, v) -> (1.0 - u, 1.0 - v)
-    vec2 rotatedUv = vec2(1.0 - vUv.x, 1.0 - vUv.y);
+    bool isEdge = vFaceType > 1.5;
+    bool isFront = uIsFront > 0.5; // Material is face-specific, no geometry detection needed
 
-    vec2 frontUv = rotatedUv;
-    vec2 backUv  = vec2(1.0 - rotatedUv.x, rotatedUv.y); // keep if you still need horizontal flip for "back"
-
-
-    vec2 faceUv = isBack ? backUv : frontUv;
-
+    // Debug: Show face ID
     if (showFaceId) {
         if (isFront) {
-            gl_FragColor = vec4(1.0, 0.0, 0.0, 1.0);
-        } else if (isBack) {
-            gl_FragColor = vec4(0.0, 0.0, 1.0, 1.0);
+            gl_FragColor = vec4(1.0, 0.0, 0.0, 1.0); // RED = front
+        } else if (isEdge) {
+            gl_FragColor = vec4(0.0, 1.0, 0.0, 1.0); // GREEN = edge
         } else {
-            gl_FragColor = vec4(0.0, 1.0, 0.0, 1.0);
+            gl_FragColor = vec4(0.0, 0.0, 1.0, 1.0); // BLUE = back
         }
         return;
     }
+
     // --- Die-cut discard ---
     // Must execute before any color accumulation
-    if (dieCutEnabled) {
-        // Use face UV (mirrored for back). For now, apply to front only.
-        vec4 dieCutTex = sampleCropped(dieCutMask, faceUv, dieCutUvOffset, dieCutUvScale);
+    if (dieCutEnabled && !isEdge) {
+        vec4 dieCutTex = texture2D(uDiecutMask, vUv);
         float cutVal = dieCutTex.r;
         
         // White (1.0) = hole -> discard fragment
-        if (isFront && cutVal > 0.5) {
+        if (cutVal > 0.5) {
             discard;
         }
     }
     
-    // Sample base artwork based on face type
-    // vFaceType: 0.0 = front, 1.0 = back, 2.0 = edge
-    vec4 artworkColor;
+    // Sample base print texture
+    // No UV rotation needed - textures are composited correctly
+    vec4 printColor = texture2D(uPrintMap, vUv);
     
-    // DEBUG ISOLATION TEST: Uncomment to verify face detection
-    // Replace texture sampling with solid colors to test vFaceType varying
-    // if (vFaceType == 0.0) {
-    //     artworkColor = vec4(1.0, 0.0, 0.0, 1.0); // RED = front face
-    // } else if (vFaceType == 1.0) {
-    //     artworkColor = vec4(0.0, 0.0, 1.0, 1.0); // BLUE = back face
-    // } else {
-    //     artworkColor = vec4(0.0, 1.0, 0.0, 1.0); // GREEN = edge
-    // }
-    
-    // Production code: Sample textures based on face type
-    if (vFaceType < 0.5) {
-        // Front face uses front artwork
-        artworkColor = texture2D(frontArtworkMap, frontUv);
-    } else if (vFaceType < 1.5) {
-        // Back face uses back artwork
-        artworkColor = texture2D(backArtworkMap, backUv);
-    } else {
-        // Edge faces - use white/edge color
-        artworkColor = vec4(1.0, 1.0, 1.0, 1.0);
+    // Edge faces use edge color
+    if (isEdge) {
+        gl_FragColor = vec4(uEdgeColor, 1.0);
+        return;
     }
-    
-    // Determine color based on face type
-    vec3 baseColor;
-    if (vFaceType == 2.0) {
-        // Edge faces use edge color
-        baseColor = uEdgeColor;
-    } else {
-        // Front and back faces use base color tint
-        baseColor = artworkColor.rgb * uBaseColor;
-    }
-    
+
+    // Apply base color tint
+    vec3 baseColor = printColor.rgb * uBaseColor;
+
     // ===================================================
     // Emboss / Deboss Height Map → Normal Perturbation
     // ===================================================
-    // Start with base normal
     vec3 N = normalize(vNormal);
     vec3 N0 = N;
     float embossHeight = 0.0;
     
-    // Apply emboss/deboss normal perturbation on front or back face
-    if (isFront && embossEnabled) {
-        vec4 embossTex = sampleCropped(embossMask, faceUv, embossUvOffset, embossUvScale);
+    // Apply emboss/deboss normal perturbation
+    if (embossEnabled && !isEdge) {
+        vec4 embossTex = texture2D(uEmbossMask, vUv);
         float h = embossTex.r;
         embossHeight = h;
         
-        // texel size — adjust according to your actual mask resolution
-        // Use card UV space for texel calculation
+        // Texel size for normal calculation
         vec2 texel = vec2(1.0 / 1024.0, 1.0 / 1024.0);
         
-        vec4 embossTexR = sampleCropped(embossMask, faceUv + vec2(texel.x, 0.0), embossUvOffset, embossUvScale);
-        vec4 embossTexU = sampleCropped(embossMask, faceUv + vec2(0.0, texel.y), embossUvOffset, embossUvScale);
+        vec4 embossTexR = texture2D(uEmbossMask, vUv + vec2(texel.x, 0.0));
+        vec4 embossTexU = texture2D(uEmbossMask, vUv + vec2(0.0, texel.y));
         float hR = embossTexR.r;
         float hU = embossTexU.r;
         
         float dHx = (hR - h) * embossMode;
         float dHy = (hU - h) * embossMode;
         
-        // bump normal (tangent space approximation)
+        // Bump normal (tangent space approximation)
         vec3 bumpNormal = normalize(vec3(-dHx, -dHy, 1.0));
         
-        // mix base normal with bump normal (increased multiplier for stronger effect)
+        // Mix base normal with bump normal
         N = normalize(mix(N0, bumpNormal, embossStrength * 20.0));
     }
     
@@ -184,25 +123,20 @@ void main() {
     float NdotL = max(dot(N, lightDir), 0.0);
     vec3 diffuse = uLightColor * NdotL;
     
-    // Ambient lighting - increase for emboss areas to make them visible from all angles
+    // Ambient lighting
     vec3 ambient = uAmbientColor;
     float embossAmbientBoost = 0.0;
     
-    // Add emboss enhancement for visibility from all angles
-    if (isFront && embossEnabled && embossHeight > 0.01) {
-        // Height-based shading: raised areas get brighter, recessed areas darker
-        // This creates depth perception independent of light direction
-        float heightFactor = (embossHeight - 0.5) * embossMode; // -0.5 to +0.5 range
-        float heightShading = heightFactor * embossStrength * 1.2; // Increased from 0.4 to 0.8
+    // Add emboss enhancement for visibility
+    if (embossEnabled && !isEdge && embossHeight > 0.01) {
+        float heightFactor = (embossHeight - 0.5) * embossMode;
+        float heightShading = heightFactor * embossStrength * 1.2;
         
-        // View-dependent rim lighting: highlight edges of embossed areas from any viewing angle
         float viewDotN = max(dot(viewDir, N), 0.0);
-        float rimFactor = pow(1.0 - viewDotN, 1.5) * embossHeight * embossStrength * 0.6; // Increased from 0.3 to 0.6
+        float rimFactor = pow(1.0 - viewDotN, 1.5) * embossHeight * embossStrength * 0.6;
         
-        // Increase ambient for embossed areas to ensure visibility
-        embossAmbientBoost = embossHeight * embossStrength * 0.3; // Increased from 0.15 to 0.3
+        embossAmbientBoost = embossHeight * embossStrength * 0.3;
         
-        // Apply all enhancements
         ambient += vec3(embossAmbientBoost);
         diffuse += vec3(heightShading + rimFactor);
     }
@@ -210,24 +144,36 @@ void main() {
     // Combine base lighting
     vec3 litColor = baseColor * (ambient + diffuse);
 
+    // Debug: Show print only
     if (showPrintOnly) {
-        gl_FragColor = vec4(litColor, 1.0);
+        gl_FragColor = vec4(litColor, printColor.a);
         return;
     }
 
+    // Debug: Show foil mask only
     if (showFoilOnly) {
-        float maskValue = sampleCropped(foilMask, faceUv, foilUvOffset, foilUvScale).r;
+        float maskValue = texture2D(uFoilMask, vUv).r;
         gl_FragColor = vec4(vec3(maskValue), 1.0);
         return;
     }
+
+    // Debug: Show mask visualizations
+    if (showMaskOnly) {
+        vec4 foilTex = texture2D(uFoilMask, vUv);
+        vec4 uvTex = texture2D(uUvMask, vUv);
+        vec4 embossTex = texture2D(uEmbossMask, vUv);
+        
+        // Color code: R=foil, G=uv, B=emboss
+        gl_FragColor = vec4(foilTex.r, uvTex.r, embossTex.r, 1.0);
+        return;
+    }
     
-    // Apply finish effects on front face only (back masks can be added later)
-    // vFaceType: 0.0 = front, 1.0 = back, 2.0 = edge
-    if (isFront) {
+    // Apply finish effects (only on front/back faces, not edges)
+    if (!isEdge) {
         
         // Apply foil effect (mask-driven metallic BRDF)
-        if (foilEnabled && isFront) {
-            vec4 foilTex = sampleCropped(foilMask, faceUv, foilUvOffset, foilUvScale);
+        if (foilEnabled) {
+            vec4 foilTex = texture2D(uFoilMask, vUv);
             float foilMaskValue = foilTex.r;
             if (foilMaskValue > 0.5) {
                 // Metallic foil color (gold)
@@ -244,9 +190,9 @@ void main() {
             }
         }
         
-        // Apply UV gloss effect (mask-driven clearcoat) - uses perturbed normal
-        if (uvEnabled && isFront) {
-            vec4 uvTex = sampleCropped(uvMask, faceUv, uvUvOffset, uvUvScale);
+        // Apply UV gloss effect (mask-driven clearcoat)
+        if (uvEnabled) {
+            vec4 uvTex = texture2D(uUvMask, vUv);
             float uvMaskValue = uvTex.r;
             if (uvMaskValue > 0.01) {
                 vec3 halfDir = normalize(lightDir + viewDir);
@@ -254,19 +200,19 @@ void main() {
                 // Clearcoat specular highlight with perturbed normal
                 float clearcoatSpec = pow(max(dot(N, halfDir), 0.0), 32.0);
                 
-                // Fresnel term for edge highlights (view-dependent) with perturbed normal
+                // Fresnel term for edge highlights (view-dependent)
                 float fresnel = pow(1.0 - max(dot(N, viewDir), 0.0), 2.0);
                 
                 // UV gloss effect strength from mask
                 float uvStrength = smoothstep(0.0, 1.0, uvMaskValue);
                 
-                // Clearcoat specular contribution (additive, not blending)
+                // Clearcoat specular contribution (additive)
                 vec3 specularHighlight = vec3(clearcoatSpec * uvStrength * 0.35);
                 
                 // Fresnel edge highlight (additive)
                 vec3 fresnelHighlight = vec3(fresnel * uvStrength * 0.2);
                 
-                // Add clearcoat brightness boost (makes it shiny)
+                // Add clearcoat brightness boost
                 vec3 clearcoatBoost = vec3(uvStrength * 0.15);
                 
                 // Combine all UV gloss contributions (additive)
@@ -279,12 +225,5 @@ void main() {
         }
     }
     
-    gl_FragColor = vec4(litColor, 1.0);
+    gl_FragColor = vec4(litColor, printColor.a);
 }
-
-
-
-
-
-
-

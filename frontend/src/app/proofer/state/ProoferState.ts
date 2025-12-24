@@ -4,6 +4,8 @@
  * State management for the 3D Proofer application
  */
 
+import * as THREE from 'three';
+
 export type ParserStatus = 'idle' | 'parsing' | 'success' | 'warning' | 'error';
 export type CardSide = 'front' | 'back';
 export type LayerType = 'artwork' | 'foil' | 'uv' | 'emboss' | 'diecut';
@@ -72,8 +74,8 @@ export interface ParserPlate {
   id: string;
   aiLayerName?: string; // Optional in new format
   side: CardSide;
-  depthIndex: number;
-  physicalPlyIndex: number;
+  depthIndex: number; // Ply index (0, 1, 2, ...)
+  physicalPlyIndex: number; // Same as depthIndex
   face: CardSide;
   type: ParserPlateType;
   assets: ParserPlateAssets;
@@ -117,6 +119,43 @@ export interface ParserPayload {
   plates: ParserPlate[];
   layersDetected?: string[];
   placementById?: Record<string, any>; // v2 format placement lookup
+}
+
+/**
+ * FaceStack: Organized plates per ply and face
+ * This is the render data model that drives compositing
+ */
+export interface FaceStack {
+  prints: ParserPlate[]; // PRINT plates, sorted by layer number
+  foilMasks: ParserPlate[]; // FOIL_MASK plates
+  uvMasks: ParserPlate[]; // SPOT_UV_MASK plates
+  embossMasks: ParserPlate[]; // EMBOSS plates
+  diecut?: ParserPlate; // DIECUT_MASK or DIECUT_SVG (single plate)
+}
+
+/**
+ * PlyStack: All faces for a single ply index
+ */
+export interface PlyStack {
+  plyIndex: number;
+  front: FaceStack;
+  back: FaceStack;
+}
+
+/**
+ * Composites: Final textures per ply/face/channel
+ * These are the CPU-composited textures ready for GPU
+ */
+export interface Composites {
+  frontPrint: THREE.Texture | null;
+  backPrint: THREE.Texture | null;
+  frontFoilMask: THREE.Texture | null;
+  backFoilMask: THREE.Texture | null;
+  frontUvMask: THREE.Texture | null;
+  backUvMask: THREE.Texture | null;
+  frontEmbossMask: THREE.Texture | null;
+  backEmbossMask: THREE.Texture | null;
+  diecutMask: THREE.Texture | null; // Shared or per-face
 }
 
 /**
@@ -178,6 +217,7 @@ export interface ProoferState {
   height: number;
   thickness: number;
   cornerRadius: number;
+  plyCount: number; // Number of plies (from meta.json)
   
   // File upload
   uploadedFile?: File;
@@ -212,6 +252,9 @@ export interface ProoferState {
   
   // Parser payload
   parserPayload?: ParserPayload;
+  
+  // FaceStacks: organized render data (computed from parserPayload)
+  faceStacks?: Map<number, PlyStack>; // plyIndex -> PlyStack
 }
 
 /**
@@ -223,6 +266,7 @@ export function createDefaultProoferState(): ProoferState {
     height: 50.8, // 2" in mm
     thickness: 0.56444, // 16pt in mm
     cornerRadius: 5,
+    plyCount: 1, // Default single ply
     
     uploadedFile: undefined,
     parserStatus: 'idle',
@@ -252,6 +296,8 @@ export function createDefaultProoferState(): ProoferState {
     
     viewSide: 'front',
     
-    parserPayload: undefined
+    parserPayload: undefined,
+    
+    faceStacks: undefined
   };
 }
