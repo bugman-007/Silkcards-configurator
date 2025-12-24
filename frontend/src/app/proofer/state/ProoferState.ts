@@ -37,6 +37,8 @@ export interface RectPx {
   y0: number; // Top edge
   x1: number; // Right edge
   y1: number; // Bottom edge
+  w?: number; // Width (x1 - x0)
+  h?: number; // Height (y1 - y0)
 }
 
 /**
@@ -48,11 +50,27 @@ export interface SizePx {
 }
 
 /**
+ * Point in pixel coordinates
+ */
+export interface PointPx {
+  x: number;
+  y: number;
+}
+
+/**
+ * Card size in pixels
+ */
+export interface CardPx {
+  w: number; // Width
+  h: number; // Height
+}
+
+/**
  * Parser Plate (from JSON)
  */
 export interface ParserPlate {
   id: string;
-  aiLayerName: string;
+  aiLayerName?: string; // Optional in new format
   side: CardSide;
   depthIndex: number;
   physicalPlyIndex: number;
@@ -63,6 +81,11 @@ export interface ParserPlate {
   file?: string; // PNG filename (e.g., "front_layer_0_spot_uv_mask.png")
   rectPx?: RectPx; // Bounding box in card pixel coordinates (top-left origin)
   sizePx?: SizePx; // Size of cropped texture (w == x1-x0, h == y1-y0)
+  // New v2 format fields
+  dpiUsed?: number; // DPI used for this plate
+  cardPx?: CardPx; // Card canvas size in pixels
+  startPx?: PointPx; // Start point (top-left) in card pixel space
+  endPx?: PointPx; // End point (bottom-right) in card pixel space
   meta?: Record<string, any>;
 }
 
@@ -71,11 +94,15 @@ export interface ParserPlate {
  */
 export interface ParserPayload {
   schemaVersion?: string;
+  version?: number; // v2 format version
   jobId?: string;
   createdAt?: string;
+  generatedAt?: string;
   // Root-level DPI from meta.json
   dpi?: number;
-  card: {
+  maxPx?: number;
+  // Card info (optional in v2 - can be derived from plates)
+  card?: {
     stockId?: string;
     thicknessPt: number;
     plyCount: number;
@@ -89,6 +116,7 @@ export interface ParserPayload {
   };
   plates: ParserPlate[];
   layersDetected?: string[];
+  placementById?: Record<string, any>; // v2 format placement lookup
 }
 
 /**

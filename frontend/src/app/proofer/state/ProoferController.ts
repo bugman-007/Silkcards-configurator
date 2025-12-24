@@ -198,13 +198,42 @@ export class ProoferController {
     this.state.parserPayload = payload;
     
     // Update card dimensions from payload
-    const cardSize = payload.card.size;
-    const thicknessPt = payload.card.thicknessPt;
-    const thicknessMm = (thicknessPt / 1000) * 25.4; // Convert pt to mm (1pt = 1/1000 inch, 1 inch = 25.4mm)
+    // v2 format: card object is optional, derive from plates' cardPx
+    if (payload.card) {
+      // Legacy format: card object exists
+      const cardSize = payload.card.size;
+      const thicknessPt = payload.card.thicknessPt;
+      const thicknessMm = (thicknessPt / 1000) * 25.4; // Convert pt to mm (1pt = 1/1000 inch, 1 inch = 25.4mm)
+      
+      this.state.width = cardSize.widthMm;
+      this.state.height = cardSize.heightMm;
+      this.state.thickness = thicknessMm;
+    } else {
+      // v2 format: derive from plates
+      // Find a PRINT plate to get cardPx, or use first plate
+      const printPlate = payload.plates.find(p => p.type === 'PRINT');
+      const referencePlate = printPlate || payload.plates[0];
+      
+      if (referencePlate?.cardPx) {
+        // Convert cardPx to mm using DPI
+        const dpi = referencePlate.dpiUsed || payload.dpi || 600;
+        const widthMm = (referencePlate.cardPx.w / dpi) * 25.4;
+        const heightMm = (referencePlate.cardPx.h / dpi) * 25.4;
+        
+        this.state.width = widthMm;
+        this.state.height = heightMm;
+        console.log(`[Proofer] Derived card size from cardPx: ${widthMm.toFixed(2)}x${heightMm.toFixed(2)}mm (${referencePlate.cardPx.w}x${referencePlate.cardPx.h}px @ ${dpi}DPI)`);
+      } else {
+        // Fallback: use defaults
+        console.warn('[Proofer] No card info found, using defaults');
+        this.state.width = 50.8;
+        this.state.height = 88.9;
+      }
+      
+      // Default thickness if not available
+      this.state.thickness = 0.56444; // 16pt in mm
+    }
     
-    this.state.width = cardSize.widthMm;
-    this.state.height = cardSize.heightMm;
-    this.state.thickness = thicknessMm;
     // Keep existing cornerRadius or use default
     if (!this.state.cornerRadius) {
       this.state.cornerRadius = 5;
@@ -232,7 +261,7 @@ export class ProoferController {
         id: plate.id,
         type: layerType,
         side: (plate.face ?? plate.side),
-        filename: plate.aiLayerName,
+        filename: plate.aiLayerName || plate.id,
         thumbnail: thumbnailUrl, // PNG URL for thumbnail display
         file: assetUrl // Store URL string for actual use
       };

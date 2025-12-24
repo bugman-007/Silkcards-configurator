@@ -73,8 +73,15 @@ vec4 sampleCropped(sampler2D tex, vec2 uv, vec2 offset, vec2 scale) {
 void main() {
     bool isFront = vFaceType < 0.5;
     bool isBack = vFaceType > 0.5 && vFaceType < 1.5;
-    vec2 frontUv = vUv;
-    vec2 backUv = vec2(1.0 - vUv.x, vUv.y);
+    
+    // Rotate UVs 180° to match texture orientation
+    // Rotate: (u, v) -> (1.0 - u, 1.0 - v)
+    vec2 rotatedUv = vec2(1.0 - vUv.x, 1.0 - vUv.y);
+
+    vec2 frontUv = rotatedUv;
+    vec2 backUv  = vec2(1.0 - rotatedUv.x, rotatedUv.y); // keep if you still need horizontal flip for "back"
+
+
     vec2 faceUv = isBack ? backUv : frontUv;
 
     if (showFaceId) {

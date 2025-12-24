@@ -16,7 +16,7 @@ export class CardGeometry {
 
   /**
    * Constructor with options object
-   * Note: Card geometry is rotated 90° to portrait orientation to match artwork
+   * Uses dimensions as-is from the JSON (no hardcoded rotation)
    */
   constructor(options: {
     width: number;
@@ -179,18 +179,8 @@ export class CardGeometry {
       this._geometry.setAttribute('uv', newAttr);
     }
 
-    // Rotate UVs 90° clockwise to match portrait artwork orientation
-    // This fixes the mismatch where geometry is portrait but UVs were landscape
-    const finalUvAttr = this._geometry.getAttribute('uv') as THREE.BufferAttribute;
-    if (finalUvAttr) {
-      for (let i = 0; i < finalUvAttr.count; i++) {
-        const u = finalUvAttr.getX(i);
-        const v = finalUvAttr.getY(i);
-        // Rotate 90° clockwise: (u, v) -> (v, 1.0 - u)
-        finalUvAttr.setXY(i, v, 1.0 - u);
-      }
-      finalUvAttr.needsUpdate = true;
-    }
+    // UVs are already correct (no rotation needed)
+    // UVs are calculated based on actual card dimensions from JSON
 
     // Update or recreate faceType attribute
     if (faceTypeAttr && faceTypeAttr.count === vertexCount) {
@@ -299,17 +289,16 @@ export class CardGeometry {
     }
 
     // Add center vertex
-    // Rotate 90° to portrait: swap X and Y (rotate around Z axis)
+    // Use dimensions as-is (no rotation)
     positions.push(0, 0, z);
     normals.push(...normal);
     uvs.push(0.5, 0.5);
     faceTypes.push(faceType);
 
     // Add outline vertices
-    // Rotate 90° to portrait: swap X and Y coordinates (rotate around Z axis)
+    // Use dimensions as-is (no rotation) - respect width/height from JSON
     for (const point of outlinePoints) {
-      // Swap X and Y to rotate 90° clockwise around Z axis (landscape -> portrait)
-      positions.push(-point.y, point.x, z);
+      positions.push(point.x, point.y, z);
       normals.push(...normal);
       uvs.push(point.u, point.v);
       faceTypes.push(faceType);
@@ -405,18 +394,16 @@ export class CardGeometry {
       const vBack = 1;
 
       // Front edge vertex (edge face - UVs set to -1 to prevent mask sampling)
-      // Rotate 90° to portrait: swap X and Y (rotate around Z axis)
-      positions.push(-front.y, front.x, halfThickness);
-      // Rotate normal: swap nx and ny, negate one for proper 90° rotation
-      normals.push(-ny, nx, 0);
+      // Use dimensions as-is (no rotation)
+      positions.push(front.x, front.y, halfThickness);
+      normals.push(nx, ny, 0);
       uvs.push(-1.0, -1.0); // Out-of-range UVs for edges
       faceTypes.push(2.0); // Edge face type
 
       // Back edge vertex (edge face - UVs set to -1 to prevent mask sampling)
-      // Rotate 90° to portrait: swap X and Y (rotate around Z axis)
-      positions.push(-back.y, back.x, -halfThickness);
-      // Rotate normal: swap nx and ny, negate one for proper 90° rotation
-      normals.push(-ny, nx, 0);
+      // Use dimensions as-is (no rotation)
+      positions.push(back.x, back.y, -halfThickness);
+      normals.push(nx, ny, 0);
       uvs.push(-1.0, -1.0); // Out-of-range UVs for edges
       faceTypes.push(2.0); // Edge face type
     }

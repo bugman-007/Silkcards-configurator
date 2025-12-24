@@ -371,8 +371,18 @@ export class FileUploadPanel {
       const payload: ParserPayload = JSON.parse(jsonText);
       
       // Validate basic structure
-      if (!payload.card || !payload.plates) {
-        throw new Error('Invalid parser payload: missing card or plates');
+      // v2 format: card is optional, but plates are required
+      if (!payload.plates || !Array.isArray(payload.plates)) {
+        throw new Error('Invalid parser payload: missing plates array');
+      }
+      
+      // v1 format: card is required
+      if (!payload.card && payload.plates.length > 0) {
+        // v2 format: check if plates have cardPx
+        const hasCardPx = payload.plates.some(p => p.cardPx);
+        if (!hasCardPx) {
+          throw new Error('Invalid parser payload: missing card info (neither card object nor cardPx in plates)');
+        }
       }
       
       // Load payload

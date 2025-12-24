@@ -128,10 +128,17 @@ export class EngineBridge {
 
   /**
    * Compute card size in pixels from PRINT plates
-   * Uses rectPx/sizePx from PRINT plates, or falls back to union of all plates
+   * Uses cardPx from plates (v2 format), or falls back to rectPx/sizePx or DPI/MM
    */
   private computeCardSizePx(payload: ParserPayload): { widthPx: number; heightPx: number } {
-    // Try to get size from PRINT plates first (preferred)
+    // v2 format: use cardPx from any plate (all plates should have same cardPx)
+    const plateWithCardPx = payload.plates.find(p => p.cardPx);
+    if (plateWithCardPx?.cardPx) {
+      console.log(`[EngineBridge] Card size from cardPx: ${plateWithCardPx.cardPx.w}x${plateWithCardPx.cardPx.h} px`);
+      return { widthPx: plateWithCardPx.cardPx.w, heightPx: plateWithCardPx.cardPx.h };
+    }
+    
+    // Try to get size from PRINT plates (v1 format)
     const printPlates = payload.plates.filter(p => p.type === 'PRINT');
     
     if (printPlates.length > 0) {
@@ -179,20 +186,25 @@ export class EngineBridge {
     }
     
     // Last resort: use DPI and card dimensions in mm
-    const dpi = payload.dpi || payload.card.dpi || 600;
-    const widthMm = payload.card.size.widthMm;
-    const heightMm = payload.card.size.heightMm;
-    const widthPx = Math.round((widthMm / 25.4) * dpi);
-    const heightPx = Math.round((heightMm / 25.4) * dpi);
+    if (payload.card) {
+      const dpi = payload.dpi || payload.card.dpi || 600;
+      const widthMm = payload.card.size.widthMm;
+      const heightMm = payload.card.size.heightMm;
+      const widthPx = Math.round((widthMm / 25.4) * dpi);
+      const heightPx = Math.round((heightMm / 25.4) * dpi);
+      
+      console.log(`[EngineBridge] Card size from DPI/MM: ${widthPx}x${heightPx} px (${dpi} DPI, ${widthMm}x${heightMm}mm)`);
+      return { widthPx, heightPx };
+    }
     
-    console.log(`[EngineBridge] Card size from DPI/MM: ${widthPx}x${heightPx} px (${dpi} DPI, ${widthMm}x${heightMm}mm)`);
-    return { widthPx, heightPx };
+    // Ultimate fallback: use defaults
+    console.warn('[EngineBridge] Could not determine card size, using defaults');
+    return { widthPx: 2100, heightPx: 1200 }; // ~88.9x50.8mm @ 600DPI
   }
 
   /**
    * Compute UV transform for a cropped texture
-   * @param rectPx - Bounding box in card pixel coordinates (top-left origin)
-   * @param sizePx - Size of cropped texture
+   * @param plate - Parser plate with positioning info (v2 format: startPx/endPx, v1 format: rectPx/sizePx)
    * @param cardWidthPx - Full card width in pixels
    * @param cardHeightPx - Full card height in pixels
    * @returns UV offset and scale
@@ -201,40 +213,71 @@ export class EngineBridge {
    * UV space: (0,0) = bottom-left, Y increases upward
    * 
    * Transform: cardUV -> localUV = (cardUV - offset) / scale
-   * where offset = (x0/cardW, 1.0 - y1/cardH) [flip Y]
+   * where offset = (x0/cardW, 1.0 - y0/cardH) [flip Y]
    * and scale = (sizeW/cardW, sizeH/cardH)
    */
   private computeUvTransform(
-    rectPx: { x0: number; y0: number; x1: number; y1: number } | undefined,
-    sizePx: { w: number; h: number } | undefined,
+    plate: ParserPlate | undefined,
     cardWidthPx: number,
     cardHeightPx: number
   ): { offset: THREE.Vector2; scale: THREE.Vector2 } {
-    if (!rectPx || !sizePx || cardWidthPx <= 0 || cardHeightPx <= 0) {
-      // No cropping info or invalid card size - use full card (no transform)
+    if (!plate || cardWidthPx <= 0 || cardHeightPx <= 0) {
+      // No plate or invalid card size - use full card (no transform)
       return {
         offset: new THREE.Vector2(0.0, 0.0),
         scale: new THREE.Vector2(1.0, 1.0)
       };
     }
     
-    // UV offset = (x0 / cardWidth, 1.0 - y0 / cardHeight)
-    // Y flip: card space y0 (top) -> UV space (1.0 - y0/cardH) (top in UV, but UV Y increases upward)
-    // In UV space: (0,0) = bottom-left, (1,1) = top-right
-    // Card space: (0,0) = top-left, Y increases downward
-    // So card y0 (top) maps to UV (1.0 - y0/cardH) (top in UV)
-    const offset = new THREE.Vector2(
-      rectPx.x0 / cardWidthPx,
-      1.0 - (rectPx.y0 / cardHeightPx) // Flip Y: y0 is top in card space, maps to top in UV
-    );
+    // v2 format: use startPx/endPx
+    if (plate.startPx && plate.endPx && plate.sizePx) {
+      const x0 = plate.startPx.x;
+      const y0 = plate.startPx.y;
+      const w = plate.sizePx.w;
+      const h = plate.sizePx.h;
+      
+      // UV offset = (x0 / cardWidth, 1.0 - y0 / cardHeight)
+      const offset = new THREE.Vector2(
+        x0 / cardWidthPx,
+        1.0 - (y0 / cardHeightPx) // Flip Y: y0 is top in card space, maps to top in UV
+      );
+      
+      // UV scale = (sizeW / cardWidth, sizeH / cardHeight)
+      const scale = new THREE.Vector2(
+        w / cardWidthPx,
+        h / cardHeightPx
+      );
+      
+      return { offset, scale };
+    }
     
-    // UV scale = (sizeW / cardWidth, sizeH / cardHeight)
-    const scale = new THREE.Vector2(
-      sizePx.w / cardWidthPx,
-      sizePx.h / cardHeightPx
-    );
+    // v1 format: use rectPx/sizePx
+    if (plate.rectPx && plate.sizePx) {
+      const x0 = plate.rectPx.x0;
+      const y0 = plate.rectPx.y0;
+      const w = plate.sizePx.w;
+      const h = plate.sizePx.h;
+      
+      // UV offset = (x0 / cardWidth, 1.0 - y0 / cardHeight)
+      const offset = new THREE.Vector2(
+        x0 / cardWidthPx,
+        1.0 - (y0 / cardHeightPx) // Flip Y: y0 is top in card space, maps to top in UV
+      );
+      
+      // UV scale = (sizeW / cardWidth, sizeH / cardHeight)
+      const scale = new THREE.Vector2(
+        w / cardWidthPx,
+        h / cardHeightPx
+      );
+      
+      return { offset, scale };
+    }
     
-    return { offset, scale };
+    // No positioning info - use full card (no transform)
+    return {
+      offset: new THREE.Vector2(0.0, 0.0),
+      scale: new THREE.Vector2(1.0, 1.0)
+    };
   }
 
   /**
@@ -328,7 +371,7 @@ export class EngineBridge {
     });
     
     console.log(`[EngineBridge] Composing print for ${side}:`, urls.length, 'layers');
-    const composed = await this.getOrComposeStackedTexture(`print:${side}`, urls, 'stack');
+    const composed = await this.getOrComposeStackedTexture(`print:${side}`, urls, 'stack', cardSize, printPlates);
     console.log(`[EngineBridge] Composed texture UUID for ${side}:`, composed?.uuid);
 
     // PRINT textures are full-card size, so no UV transform needed (offset=0,0, scale=1,1)
@@ -399,15 +442,14 @@ export class EngineBridge {
     });
     
     console.log(`[EngineBridge] Composing ${target} parser mask for ${side}:`, urls.length, 'layers');
-    const composed = await this.getOrComposeStackedTexture(`mask:${plateType}:${side}`, urls, 'max');
+    const composed = await this.getOrComposeStackedTexture(`mask:${plateType}:${side}`, urls, 'max', cardSize, plates);
     console.log(`[EngineBridge] Composed ${target} parser mask UUID for ${side}:`, composed?.uuid);
 
-    // Compute UV transform from first plate's rectPx/sizePx
-    // All plates of same type/side should have same rectPx (union is done in composition)
+    // Compute UV transform from first plate's positioning info
+    // All plates of same type/side should have same positioning (union is done in composition)
     const firstPlate = plates[0];
     const uvTransform = this.computeUvTransform(
-      firstPlate.rectPx,
-      firstPlate.sizePx,
+      firstPlate,
       cardSize.widthPx,
       cardSize.heightPx
     );
@@ -415,6 +457,8 @@ export class EngineBridge {
     console.log(`[EngineBridge] ${target} UV transform for ${side}:`, {
       offset: uvTransform.offset,
       scale: uvTransform.scale,
+      startPx: firstPlate.startPx,
+      endPx: firstPlate.endPx,
       rectPx: firstPlate.rectPx,
       sizePx: firstPlate.sizePx
     });
@@ -497,14 +541,13 @@ export class EngineBridge {
     }
 
     console.log(`[EngineBridge] Composing emboss for ${side}:`, urls.length, 'layers', heightUrls.length > 0 ? '(height maps)' : '(masks)');
-    const composed = await this.getOrComposeStackedTexture(`emboss:${side}:${heightUrls.length > 0 ? 'height' : 'mask'}`, urls, 'max');
+    const composed = await this.getOrComposeStackedTexture(`emboss:${side}:${heightUrls.length > 0 ? 'height' : 'mask'}`, urls, 'max', cardSize, plates);
     console.log(`[EngineBridge] Composed emboss UUID for ${side}:`, composed?.uuid);
 
-    // Compute UV transform from first plate's rectPx/sizePx
+    // Compute UV transform from first plate's positioning info
     const firstPlate = plates[0];
     const uvTransform = this.computeUvTransform(
-      firstPlate.rectPx,
-      firstPlate.sizePx,
+      firstPlate,
       cardSize.widthPx,
       cardSize.heightPx
     );
@@ -512,6 +555,8 @@ export class EngineBridge {
     console.log(`[EngineBridge] emboss UV transform for ${side}:`, {
       offset: uvTransform.offset,
       scale: uvTransform.scale,
+      startPx: firstPlate.startPx,
+      endPx: firstPlate.endPx,
       rectPx: firstPlate.rectPx,
       sizePx: firstPlate.sizePx
     });
@@ -527,7 +572,9 @@ export class EngineBridge {
   private async getOrComposeStackedTexture(
     cacheKey: string,
     urls: string[],
-    mode: 'stack' | 'max'
+    mode: 'stack' | 'max',
+    cardSize?: { widthPx: number; heightPx: number },
+    plates?: ParserPlate[]
   ): Promise<THREE.Texture> {
     const signature = `${cacheKey}::${urls.join('|')}`;
     const cached = this.composedTextures.get(signature);
@@ -545,33 +592,127 @@ export class EngineBridge {
         : ResourceManager.createPlaceholderTexture(512, 512, new THREE.Color(0, 0, 0));
     }
 
-    const w = images[0].width || images[0].naturalWidth;
-    const h = images[0].height || images[0].naturalHeight;
+    // Determine canvas size: use cardPx if available, otherwise use first image size
+    let canvasW: number;
+    let canvasH: number;
+    let usePositioning = false;
+
+    if (cardSize && plates && plates.length > 0 && plates[0].cardPx) {
+      // v2 format: use cardPx for canvas size and position textures
+      canvasW = cardSize.widthPx;
+      canvasH = cardSize.heightPx;
+      usePositioning = true;
+      console.log(`[EngineBridge] Using cardPx canvas: ${canvasW}x${canvasH}px with positioning`);
+    } else {
+      // v1 format: use first image size (legacy behavior)
+      canvasW = images[0].width || images[0].naturalWidth;
+      canvasH = images[0].height || images[0].naturalHeight;
+      usePositioning = false;
+      console.log(`[EngineBridge] Using image-size canvas: ${canvasW}x${canvasH}px (no positioning)`);
+    }
 
     const canvas = document.createElement('canvas');
-    canvas.width = w;
-    canvas.height = h;
+    canvas.width = canvasW;
+    canvas.height = canvasH;
     const ctx = canvas.getContext('2d', { willReadFrequently: mode === 'max' })!;
 
-    if (mode === 'stack') {
-      for (const img of images) {
-        ctx.drawImage(img, 0, 0, w, h);
+    if (usePositioning && plates) {
+      // v2 format: position each texture at its startPx
+      if (mode === 'stack') {
+        // Stack mode: draw each image at its position
+        for (let i = 0; i < images.length; i++) {
+          const img = images[i];
+          const plate = plates[i];
+          if (plate?.startPx) {
+            const x = plate.startPx.x;
+            const y = plate.startPx.y;
+            const imgW = img.width || img.naturalWidth;
+            const imgH = img.height || img.naturalHeight;
+            ctx.drawImage(img, x, y, imgW, imgH);
+            console.log(`[EngineBridge] Stacked image ${i} at (${x}, ${y}) size ${imgW}x${imgH}`);
+          } else {
+            // Fallback: draw at (0,0) if no positioning info
+            ctx.drawImage(img, 0, 0, canvasW, canvasH);
+          }
+        }
+      } else {
+        // Max mode: union/max per-channel, positioned
+        const accum = new Uint8ClampedArray(canvasW * canvasH * 4);
+        
+        for (let i = 0; i < images.length; i++) {
+          const img = images[i];
+          const plate = plates[i];
+          
+          if (plate?.startPx) {
+            const x = plate.startPx.x;
+            const y = plate.startPx.y;
+            const imgW = img.width || img.naturalWidth;
+            const imgH = img.height || img.naturalHeight;
+            
+            // Draw image to temp canvas to get pixel data
+            const tempCanvas = document.createElement('canvas');
+            tempCanvas.width = imgW;
+            tempCanvas.height = imgH;
+            const tempCtx = tempCanvas.getContext('2d')!;
+            tempCtx.drawImage(img, 0, 0, imgW, imgH);
+            const imgData = tempCtx.getImageData(0, 0, imgW, imgH).data;
+            
+            // Accumulate into main canvas at position
+            for (let py = 0; py < imgH; py++) {
+              for (let px = 0; px < imgW; px++) {
+                const srcIdx = (py * imgW + px) * 4;
+                const dstX = x + px;
+                const dstY = y + py;
+                if (dstX >= 0 && dstX < canvasW && dstY >= 0 && dstY < canvasH) {
+                  const dstIdx = (dstY * canvasW + dstX) * 4;
+                  for (let c = 0; c < 4; c++) {
+                    if (imgData[srcIdx + c] > accum[dstIdx + c]) {
+                      accum[dstIdx + c] = imgData[srcIdx + c];
+                    }
+                  }
+                }
+              }
+            }
+            console.log(`[EngineBridge] Max-accumulated image ${i} at (${x}, ${y}) size ${imgW}x${imgH}`);
+          } else {
+            // Fallback: draw at (0,0) and max-accumulate
+            ctx.clearRect(0, 0, canvasW, canvasH);
+            ctx.drawImage(img, 0, 0, canvasW, canvasH);
+            const data = ctx.getImageData(0, 0, canvasW, canvasH).data;
+            for (let i = 0; i < accum.length; i++) {
+              if (data[i] > accum[i]) accum[i] = data[i];
+            }
+          }
+        }
+        
+        const out = ctx.createImageData(canvasW, canvasH);
+        out.data.set(accum);
+        ctx.putImageData(out, 0, 0);
       }
     } else {
-      // Union/max per-channel across all layers.
-      // (We only need grayscale masks, but max per channel is robust for colored inputs.)
-      const accum = new Uint8ClampedArray(w * h * 4);
-      for (const img of images) {
-        ctx.clearRect(0, 0, w, h);
-        ctx.drawImage(img, 0, 0, w, h);
-        const data = ctx.getImageData(0, 0, w, h).data;
-        for (let i = 0; i < accum.length; i++) {
-          if (data[i] > accum[i]) accum[i] = data[i];
+      // v1 format: legacy behavior (draw all at 0,0)
+      const w = images[0].width || images[0].naturalWidth;
+      const h = images[0].height || images[0].naturalHeight;
+
+      if (mode === 'stack') {
+        for (const img of images) {
+          ctx.drawImage(img, 0, 0, w, h);
         }
+      } else {
+        // Union/max per-channel across all layers.
+        const accum = new Uint8ClampedArray(w * h * 4);
+        for (const img of images) {
+          ctx.clearRect(0, 0, w, h);
+          ctx.drawImage(img, 0, 0, w, h);
+          const data = ctx.getImageData(0, 0, w, h).data;
+          for (let i = 0; i < accum.length; i++) {
+            if (data[i] > accum[i]) accum[i] = data[i];
+          }
+        }
+        const out = ctx.createImageData(w, h);
+        out.data.set(accum);
+        ctx.putImageData(out, 0, 0);
       }
-      const out = ctx.createImageData(w, h);
-      out.data.set(accum);
-      ctx.putImageData(out, 0, 0);
     }
 
     const outTex = new THREE.CanvasTexture(canvas);
