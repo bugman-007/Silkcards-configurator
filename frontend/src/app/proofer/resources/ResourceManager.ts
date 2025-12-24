@@ -331,7 +331,8 @@ export class ResourceManager {
     }
 
     const texture = new THREE.CanvasTexture(canvas);
-    texture.flipY = false;
+    texture.flipY = true;
+    texture.rotation = 0; // No rotation - use UVs directly from geometry
     texture.colorSpace = THREE.SRGBColorSpace;
     texture.needsUpdate = true;
     console.log(`[ResourceManager] Composited print texture: ${canvas.width}x${canvas.height}px, uuid=${texture.uuid}`);

@@ -59,10 +59,13 @@ void main() {
         return;
     }
 
+    // Use UVs directly (no mirroring - geometry provides correct orientation)
+    vec2 rotatedUv = vUv;
+    
     // --- Die-cut discard ---
     // Must execute before any color accumulation
     if (dieCutEnabled && !isEdge) {
-        vec4 dieCutTex = texture2D(uDiecutMask, vUv);
+        vec4 dieCutTex = texture2D(uDiecutMask, rotatedUv);
         float cutVal = dieCutTex.r;
         
         // White (1.0) = hole -> discard fragment
@@ -72,8 +75,7 @@ void main() {
     }
     
     // Sample base print texture
-    // No UV rotation needed - textures are composited correctly
-    vec4 printColor = texture2D(uPrintMap, vUv);
+    vec4 printColor = texture2D(uPrintMap, rotatedUv);
     
     // Edge faces use edge color
     if (isEdge) {
@@ -93,15 +95,15 @@ void main() {
     
     // Apply emboss/deboss normal perturbation
     if (embossEnabled && !isEdge) {
-        vec4 embossTex = texture2D(uEmbossMask, vUv);
+        vec4 embossTex = texture2D(uEmbossMask, rotatedUv);
         float h = embossTex.r;
         embossHeight = h;
         
         // Texel size for normal calculation
         vec2 texel = vec2(1.0 / 1024.0, 1.0 / 1024.0);
         
-        vec4 embossTexR = texture2D(uEmbossMask, vUv + vec2(texel.x, 0.0));
-        vec4 embossTexU = texture2D(uEmbossMask, vUv + vec2(0.0, texel.y));
+        vec4 embossTexR = texture2D(uEmbossMask, rotatedUv + vec2(texel.x, 0.0));
+        vec4 embossTexU = texture2D(uEmbossMask, rotatedUv + vec2(0.0, texel.y));
         float hR = embossTexR.r;
         float hU = embossTexU.r;
         
@@ -152,16 +154,16 @@ void main() {
 
     // Debug: Show foil mask only
     if (showFoilOnly) {
-        float maskValue = texture2D(uFoilMask, vUv).r;
+        float maskValue = texture2D(uFoilMask, rotatedUv).r;
         gl_FragColor = vec4(vec3(maskValue), 1.0);
         return;
     }
 
     // Debug: Show mask visualizations
     if (showMaskOnly) {
-        vec4 foilTex = texture2D(uFoilMask, vUv);
-        vec4 uvTex = texture2D(uUvMask, vUv);
-        vec4 embossTex = texture2D(uEmbossMask, vUv);
+        vec4 foilTex = texture2D(uFoilMask, rotatedUv);
+        vec4 uvTex = texture2D(uUvMask, rotatedUv);
+        vec4 embossTex = texture2D(uEmbossMask, rotatedUv);
         
         // Color code: R=foil, G=uv, B=emboss
         gl_FragColor = vec4(foilTex.r, uvTex.r, embossTex.r, 1.0);
@@ -173,7 +175,7 @@ void main() {
         
         // Apply foil effect (mask-driven metallic BRDF)
         if (foilEnabled) {
-            vec4 foilTex = texture2D(uFoilMask, vUv);
+            vec4 foilTex = texture2D(uFoilMask, rotatedUv);
             float foilMaskValue = foilTex.r;
             if (foilMaskValue > 0.5) {
                 // Metallic foil color (gold)
@@ -192,7 +194,7 @@ void main() {
         
         // Apply UV gloss effect (mask-driven clearcoat)
         if (uvEnabled) {
-            vec4 uvTex = texture2D(uUvMask, vUv);
+            vec4 uvTex = texture2D(uUvMask, rotatedUv);
             float uvMaskValue = uvTex.r;
             if (uvMaskValue > 0.01) {
                 vec3 halfDir = normalize(lightDir + viewDir);
