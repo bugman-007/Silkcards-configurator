@@ -85,7 +85,7 @@ void main() {
 
     // Apply base color tint
     vec3 baseColor = printColor.rgb * uBaseColor;
-
+    
     // ===================================================
     // Emboss / Deboss Height Map → Normal Perturbation
     // ===================================================
@@ -158,7 +158,7 @@ void main() {
         gl_FragColor = vec4(vec3(maskValue), 1.0);
         return;
     }
-
+    
     // Debug: Show mask visualizations
     if (showMaskOnly) {
         vec4 foilTex = texture2D(uFoilMask, rotatedUv);

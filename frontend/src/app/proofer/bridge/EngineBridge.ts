@@ -55,6 +55,35 @@ export class EngineBridge {
   }
 
   /**
+   * Get materials array for a ply box (with edge material)
+   * Material array order for BoxGeometry: [right, left, top, bottom, front, back]
+   * @param plyIndex - The ply index
+   * @param edgeMaterial - Material for edge faces
+   * @returns Array of 6 materials or null if front/back materials not available
+   */
+  getPlyBoxMaterials(
+    plyIndex: number,
+    edgeMaterial: THREE.Material
+  ): THREE.Material[] | null {
+    const frontMaterial = this.getMaterial(plyIndex, 'front');
+    const backMaterial = this.getMaterial(plyIndex, 'back');
+    
+    if (!frontMaterial || !backMaterial) {
+      return null;
+    }
+    
+    // BoxGeometry material array: [right, left, top, bottom, front, back]
+    return [
+      edgeMaterial, // right
+      edgeMaterial, // left
+      edgeMaterial, // top
+      edgeMaterial, // bottom
+      frontMaterial, // front
+      backMaterial   // back
+    ];
+  }
+
+  /**
    * Get all materials (for cleanup/disposal)
    */
   getAllMaterials(): THREE.ShaderMaterial[] {
@@ -125,7 +154,7 @@ export class EngineBridge {
         if (!composites) {
           console.warn(`[EngineBridge] No composites built for ply ${plyIndex}`);
           continue;
-        }
+  }
 
         // Cache composites
         this.compositesCache.set(`ply${plyIndex}`, composites);
@@ -192,7 +221,7 @@ export class EngineBridge {
         uPrintMap: !!frontMaterial.uniforms.uPrintMap?.value,
         printMapUUID: frontMaterial.uniforms.uPrintMap?.value?.uuid
       });
-    } else {
+        } else {
       // Update existing material
       console.log(`[EngineBridge] Updating EXISTING front material for ply${plyIndex}`);
       if (composites.frontPrint) {
@@ -290,8 +319,8 @@ export class EngineBridge {
     const debugFlags = (window as any).__PROOFER_DEBUG__ || {};
     for (const material of this.materials.values()) {
       MaterialPipeline.updateDebugFlags(material, {
-        showFaceId: !!debugFlags.showFaceId,
-        showPrintOnly: !!debugFlags.showPrintOnly,
+      showFaceId: !!debugFlags.showFaceId,
+      showPrintOnly: !!debugFlags.showPrintOnly,
         showFoilOnly: !!debugFlags.showFoilOnly,
         showMaskOnly: !!debugFlags.showMaskOnly
       });

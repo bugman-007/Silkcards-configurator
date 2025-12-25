@@ -73,6 +73,9 @@ export class MaterialPipeline {
         showFoilOnly: { value: false },
         showMaskOnly: { value: false }, // New: show mask visualizations
 
+        // DEV: layer explode spacing (0 = off, spacing is in world units: mm if geometry uses mm)
+        uDevLayerSpacing: { value: 0.0 },
+
         // Lighting uniforms
         uLightDirection: { value: new THREE.Vector3(0, 0, 1) },
         uLightColor: { value: new THREE.Color(1.0, 1.0, 1.0) },
@@ -81,10 +84,24 @@ export class MaterialPipeline {
         // Camera position for view-dependent effects
         uCameraPosition: { value: new THREE.Vector3(0, 0, 150) }
       },
-      side: THREE.DoubleSide
+      // Use FrontSide for each face material (not DoubleSide which causes mirrored backs)
+      // Back face geometry has its own material with correct UVs
+      side: THREE.FrontSide
     });
 
     return material;
+  }
+
+  /**
+   * Create a simple edge material for ply side faces
+   * @param edgeColor - Color for the edge (default: white/paper color)
+   * @returns A MeshStandardMaterial for rendering edge faces
+   */
+  static createEdgeMaterial(edgeColor: THREE.Color = new THREE.Color(1.0, 1.0, 1.0)): THREE.MeshStandardMaterial {
+    return new THREE.MeshStandardMaterial({
+      color: edgeColor,
+      side: THREE.FrontSide
+    });
   }
 
   /**
@@ -370,5 +387,25 @@ export class MaterialPipeline {
   ): void {
     // No-op: new architecture doesn't use UV transforms
     console.warn('[MaterialPipeline] updateDieCutUvTransform called but not needed in new architecture');
+  }
+
+  /**
+   * DEV: explode spacing between front/back and edge band for debugging
+   * spacing is in the same world units as your geometry (mm if geometry uses mm)
+   * @param material - The shader material to update
+   * @param enabled - Whether dev mode is enabled
+   * @param spacing - Spacing amount in world units (default: 25mm = 2.5cm)
+   */
+  static updateDevLayerSpacing(
+    material: THREE.ShaderMaterial,
+    enabled: boolean,
+    spacing: number = 25.0
+  ): void {
+    if (!material.uniforms.uDevLayerSpacing) {
+      console.warn('[MaterialPipeline] uDevLayerSpacing uniform not found in material');
+      return;
+    }
+    material.uniforms.uDevLayerSpacing.value = enabled ? spacing : 0.0;
+    material.needsUpdate = true;
   }
 }

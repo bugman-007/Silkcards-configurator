@@ -1,10 +1,18 @@
 import * as THREE from 'three';
 
 /**
+ * Ply thickness constant: 16pt = 5.644mm
+ * 1 pt = 1/72 inch, 16 pt = 16/72 inch = 0.2222 inch
+ * 0.2222 inch × 25.4 mm/in = 5.644 mm
+ */
+export const PLY_THICKNESS_MM = 0.5644;
+
+/**
  * Procedural Card Geometry Generator - Proofer
  * Creates dynamic card meshes with rounded corners, proper UVs, and thickness
  * 
  * UVs are always in 0-1 range and scale with card size to match artwork scaling
+ * Each ply has a fixed thickness of 16pt (5.644mm)
  */
 export class CardGeometry {
   private _geometry: THREE.BufferGeometry;
@@ -14,6 +22,7 @@ export class CardGeometry {
   private cornerRadius: number;
   private plyCount: number; // Number of plies
   private cornerSegments: number = 8;
+  private spacingMultiplier: number = 1.0; // Multiplier for layer spacing (dev mode: 2.5cm spacing)
 
   /**
    * Constructor with options object
@@ -26,12 +35,14 @@ export class CardGeometry {
     thickness: number;
     cornerRadius: number;
     plyCount?: number; // Number of plies (default: 1)
+    spacingMultiplier?: number; // Multiplier for layer spacing (default: 1.0)
   }) {
     this.width = options.width;
     this.height = options.height;
     this.thickness = options.thickness;
     this.cornerRadius = options.cornerRadius;
     this.plyCount = options.plyCount || 1;
+    this.spacingMultiplier = options.spacingMultiplier ?? 1.0;
     this._geometry = new THREE.BufferGeometry();
     this.buildGeometry();
   }
@@ -39,13 +50,16 @@ export class CardGeometry {
   /**
    * Update card dimensions and rebuild geometry
    */
-  updateDimensions(width: number, height: number, thickness: number, cornerRadius: number, plyCount?: number): void {
+  updateDimensions(width: number, height: number, thickness: number, cornerRadius: number, plyCount?: number, spacingMultiplier?: number): void {
     this.width = width;
     this.height = height;
     this.thickness = thickness;
     this.cornerRadius = cornerRadius;
     if (plyCount !== undefined) {
       this.plyCount = plyCount;
+    }
+    if (spacingMultiplier !== undefined) {
+      this.spacingMultiplier = spacingMultiplier;
     }
     this.rebuildGeometry();
   }
@@ -58,69 +72,58 @@ export class CardGeometry {
   }
 
   /**
-   * Create geometry for a specific ply/face combination
-   * Used in multi-ply architecture where each mesh needs its own geometry
+   * Create box geometry for a specific ply (with actual thickness)
+   * Used in multi-ply architecture where each mesh is a full box (not just a face)
    * 
    * @param plyIndex - The ply index (0, 1, 2, ...)
-   * @param face - 'front' or 'back'
-   * @returns A new BufferGeometry for this specific ply/face
+   * @returns Object with geometry and centerZ position (mesh should be positioned at centerZ)
    */
-  createPlyFaceGeometry(plyIndex: number, face: 'front' | 'back'): THREE.BufferGeometry {
-    const positions: number[] = [];
-    const normals: number[] = [];
-    const uvs: number[] = [];
-    const indices: number[] = [];
-
-    const halfWidth = this.width / 2;
-    const halfHeight = this.height / 2;
-    const unitThickness = this.thickness / this.plyCount;
-    const totalHalfThickness = this.thickness / 2;
-
-    // Z-offset for this ply
-    const zOffset = -totalHalfThickness + (plyIndex + 0.5) * unitThickness;
-    const z = face === 'front' 
-      ? zOffset + unitThickness / 2  // Front face
-      : zOffset - unitThickness / 2;  // Back face
-
-    const normal: [number, number, number] = face === 'front' 
-      ? [0, 0, 1]   // Front normal
-      : [0, 0, -1]; // Back normal
-
-    // Build the face
-    this.buildFaceForPly(
-      positions,
-      normals,
-      uvs,
-      indices,
-      halfWidth,
-      halfHeight,
-      z,
-      normal
-    );
-
-    // Create geometry
-    const geometry = new THREE.BufferGeometry();
-    geometry.setAttribute('position', new THREE.Float32BufferAttribute(new Float32Array(positions), 3));
-    geometry.setAttribute('normal', new THREE.Float32BufferAttribute(new Float32Array(normals), 3));
-    geometry.setAttribute('uv', new THREE.Float32BufferAttribute(new Float32Array(uvs), 2));
+  createPlyBoxGeometry(plyIndex: number): { geometry: THREE.BoxGeometry; centerZ: number } {
+    // Each ply has fixed thickness of 16pt (5.644mm)
+    const plyThickness = PLY_THICKNESS_MM;
     
-    const maxIndexValue = indices.length > 0 ? Math.max(...indices) : 0;
-    const useUint32 = maxIndexValue > 65535;
-    const indexArray = useUint32 
-      ? new Uint32Array(indices) 
-      : new Uint16Array(indices);
-    geometry.setIndex(new THREE.BufferAttribute(indexArray, 1));
+    // Apply spacing multiplier for dev mode (2.5cm = 25mm spacing between ply centers)
+    // When spacingMultiplier = 1.0, plies are stacked with normal thickness
+    const spacingBetweenPlies = plyThickness * this.spacingMultiplier;
+    const totalStackHeight = spacingBetweenPlies * this.plyCount;
+    const totalHalfStackHeight = totalStackHeight / 2;
 
+    // Z-offset for this ply center (using spacing multiplier)
+    // Reverse order: ply 0 is in front (+Z), higher indices are behind (-Z)
+    // centerZ = totalHalfStackHeight - (plyIndex + 0.5) * spacingBetweenPlies
+    const centerZ = totalHalfStackHeight - (plyIndex + 0.5) * spacingBetweenPlies;
+    
+    // Create box geometry - card dimensions with actual thickness
+    // BoxGeometry is centered at origin by default, we'll position the mesh at centerZ
+    const geometry = new THREE.BoxGeometry(this.width, this.height, plyThickness);
+    
     geometry.computeBoundingBox();
     geometry.computeBoundingSphere();
 
+    return { geometry, centerZ };
+  }
+
+  /**
+   * Create geometry for a specific ply/face combination (DEPRECATED - use createPlyBoxGeometry)
+   * Kept for backward compatibility during transition
+   * 
+   * @param plyIndex - The ply index (0, 1, 2, ...)
+   * @param face - 'front' or 'back' (ignored - returns full box)
+   * @returns A new BufferGeometry for this specific ply/face
+   * @deprecated Use createPlyBoxGeometry instead to get actual thickness
+   */
+  createPlyFaceGeometry(plyIndex: number, face: 'front' | 'back'): THREE.BufferGeometry {
+    // Return a box geometry (this method is being phased out)
+    // The face parameter is ignored - we create a full box now
+    const { geometry } = this.createPlyBoxGeometry(plyIndex);
     return geometry;
   }
 
   /**
    * Build a face for a specific ply (simplified version without faceType/plyIndex arrays)
+   * @param reverseWinding - If true, reverse triangle winding for back faces (required for FrontSide culling)
    */
-  private buildFaceForPly(
+  private buildFaceForPlyWithWinding(
     positions: number[],
     normals: number[],
     uvs: number[],
@@ -128,7 +131,8 @@ export class CardGeometry {
     halfWidth: number,
     halfHeight: number,
     z: number,
-    normal: [number, number, number]
+    normal: [number, number, number],
+    reverseWinding: boolean = false
   ): void {
     const startIndex = positions.length / 3;
     const effectiveWidth = this.width;
@@ -190,14 +194,27 @@ export class CardGeometry {
     }
 
     // Create triangles from center to outline
+    // Winding order determines which side is "front" for culling
+    // CCW winding = front visible from +Z (for front faces)
+    // CW winding (reversed) = front visible from -Z (for back faces)
     const numOutlineVerts = outlinePoints.length;
     for (let i = 0; i < numOutlineVerts; i++) {
       const next = (i + 1) % numOutlineVerts;
-      indices.push(
-        startIndex,
-        startIndex + 1 + i,
-        startIndex + 1 + next
-      );
+      if (reverseWinding) {
+        // CW winding for back faces (visible from -Z direction)
+        indices.push(
+          startIndex,
+          startIndex + 1 + next,
+          startIndex + 1 + i
+        );
+      } else {
+        // CCW winding for front faces (visible from +Z direction)
+        indices.push(
+          startIndex,
+          startIndex + 1 + i,
+          startIndex + 1 + next
+        );
+      }
     }
   }
 

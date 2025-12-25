@@ -19,6 +19,7 @@ import {
   FaceStack,
   PlyStack
 } from './ProoferState.js';
+import { PLY_THICKNESS_MM } from '../geometry/CardGeometry.js';
 
 export type ProoferListener = (state: ProoferState) => void;
 
@@ -241,8 +242,22 @@ export class ProoferController {
       this.state.cornerRadius = 5;
     }
     
-    // Get plyCount from payload
-    this.state.plyCount = payload.card?.plyCount || 1;
+    // Derive plyCount from plate depthIndex values (not payload.card.plyCount)
+    // A ply is defined by layer_<n> - collect unique ply indices from all plates
+    const plyIndices = new Set<number>();
+    for (const plate of payload.plates) {
+      const plyIndex = plate.depthIndex ?? plate.physicalPlyIndex ?? 0;
+      plyIndices.add(plyIndex);
+    }
+    // plyCount is max(plyIndices) + 1 (handles sparse indices)
+    const maxPlyIndex = Math.max(...Array.from(plyIndices), 0);
+    this.state.plyCount = maxPlyIndex + 1;
+    console.log(`[Proofer] Derived plyCount=${this.state.plyCount} from plate indices: [${Array.from(plyIndices).sort().join(', ')}]`);
+    
+    // Calculate total thickness = plyCount * PLY_THICKNESS_MM (16pt per ply = 5.644mm)
+    // Override any thickness set from payload.card - use computed value
+    this.state.thickness = this.state.plyCount * PLY_THICKNESS_MM;
+    console.log(`[Proofer] Total thickness: ${this.state.thickness.toFixed(2)}mm (${this.state.plyCount} plies × ${PLY_THICKNESS_MM}mm)`);
     
     // Build FaceStacks: organize plates by plyIndex and face
     const faceStacks = this.buildFaceStacks(payload.plates);
