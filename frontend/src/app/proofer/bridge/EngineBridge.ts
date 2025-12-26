@@ -243,15 +243,28 @@ export class EngineBridge {
     }
 
     // Update finish toggles for front
-    MaterialPipeline.updateFoil(frontMaterial, state.optionStates.foil.enabled && state.optionStates.foil.side === 'front');
-    MaterialPipeline.updateUV(frontMaterial, state.optionStates.uv.enabled && state.optionStates.uv.side === 'front');
-    MaterialPipeline.updateEmbossParams(
-      frontMaterial,
-      state.optionStates.emboss.enabled && state.optionStates.emboss.side === 'front',
-      0.12,
-      1.0
-    );
-    MaterialPipeline.updateDieCut(frontMaterial, state.optionStates.diecut.enabled);
+    // Enable per-side: only enable if global toggle is on AND mask exists for this side
+    const foilFrontEnabled = state.optionStates.foil.enabled && state.optionStates.foil.side === 'front' && !!composites.frontFoilMask;
+    const uvFrontEnabled = state.optionStates.uv.enabled && state.optionStates.uv.side === 'front' && !!composites.frontUvMask;
+    const embossFrontEnabled = state.optionStates.emboss.enabled && state.optionStates.emboss.side === 'front' && !!composites.frontEmbossMask;
+    const diecutFrontEnabled = state.optionStates.diecut.enabled && !!composites.diecutMask;
+    
+    MaterialPipeline.updateFoil(frontMaterial, foilFrontEnabled);
+    MaterialPipeline.updateUV(frontMaterial, uvFrontEnabled);
+    MaterialPipeline.updateEmbossParams(frontMaterial, embossFrontEnabled, 0.12, 1.0);
+    MaterialPipeline.updateDieCut(frontMaterial, diecutFrontEnabled);
+    
+    // Debug logging for uniform binding verification
+    console.log(`[EngineBridge] Front material finish toggles (ply${plyIndex}):`, {
+      foilEnabled: foilFrontEnabled,
+      foilTexture: !!composites.frontFoilMask,
+      uvEnabled: uvFrontEnabled,
+      uvTexture: !!composites.frontUvMask,
+      embossEnabled: embossFrontEnabled,
+      embossTexture: !!composites.frontEmbossMask,
+      diecutEnabled: diecutFrontEnabled,
+      diecutTexture: !!composites.diecutMask
+    });
 
     // Back material
     const backKey = `ply${plyIndex}_back`;
@@ -301,15 +314,28 @@ export class EngineBridge {
     }
 
     // Update finish toggles for back
-    MaterialPipeline.updateFoil(backMaterial, state.optionStates.foil.enabled && state.optionStates.foil.side === 'back');
-    MaterialPipeline.updateUV(backMaterial, state.optionStates.uv.enabled && state.optionStates.uv.side === 'back');
-    MaterialPipeline.updateEmbossParams(
-      backMaterial,
-      state.optionStates.emboss.enabled && state.optionStates.emboss.side === 'back',
-      0.12,
-      1.0
-    );
-    MaterialPipeline.updateDieCut(backMaterial, state.optionStates.diecut.enabled);
+    // Enable per-side: only enable if global toggle is on AND mask exists for this side
+    const foilBackEnabled = state.optionStates.foil.enabled && state.optionStates.foil.side === 'back' && !!composites.backFoilMask;
+    const uvBackEnabled = state.optionStates.uv.enabled && state.optionStates.uv.side === 'back' && !!composites.backUvMask;
+    const embossBackEnabled = state.optionStates.emboss.enabled && state.optionStates.emboss.side === 'back' && !!composites.backEmbossMask;
+    const diecutBackEnabled = state.optionStates.diecut.enabled && !!composites.diecutMask;
+    
+    MaterialPipeline.updateFoil(backMaterial, foilBackEnabled);
+    MaterialPipeline.updateUV(backMaterial, uvBackEnabled);
+    MaterialPipeline.updateEmbossParams(backMaterial, embossBackEnabled, 0.12, 1.0);
+    MaterialPipeline.updateDieCut(backMaterial, diecutBackEnabled);
+    
+    // Debug logging for uniform binding verification
+    console.log(`[EngineBridge] Back material finish toggles (ply${plyIndex}):`, {
+      foilEnabled: foilBackEnabled,
+      foilTexture: !!composites.backFoilMask,
+      uvEnabled: uvBackEnabled,
+      uvTexture: !!composites.backUvMask,
+      embossEnabled: embossBackEnabled,
+      embossTexture: !!composites.backEmbossMask,
+      diecutEnabled: diecutBackEnabled,
+      diecutTexture: !!composites.diecutMask
+    });
   }
 
   /**

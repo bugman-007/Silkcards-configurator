@@ -16,6 +16,7 @@ import {
   LayerType,
   ParserPayload,
   ParserPlate,
+  ParserPlateType,
   FaceStack,
   PlyStack
 } from './ProoferState.js';
@@ -197,8 +198,38 @@ export class ProoferController {
   loadParserPayload(payload: ParserPayload): void {
     console.log(`[Proofer] Loaded parser payload jobId=${payload.jobId || 'unknown'}`);
     
-    // Store payload
-    this.state.parserPayload = payload;
+    // Normalize plate types first - ensure all plates match expected internal types
+    const payloadNormalized: ParserPayload = {
+      ...payload,
+      plates: payload.plates.map(plate => ({
+        ...plate,
+        type: this.normalizePlateType(plate)
+      }))
+    };
+    
+    // Log plate type counts after normalization
+    const typeCounts = {
+      PRINT: 0,
+      FOIL_MASK: 0,
+      SPOT_UV_MASK: 0,
+      EMBOSS: 0,
+      DIECUT_MASK: 0,
+      DIECUT_SVG: 0,
+      UNKNOWN: 0
+    };
+    
+    for (const plate of payloadNormalized.plates) {
+      if (plate.type in typeCounts) {
+        typeCounts[plate.type as keyof typeof typeCounts]++;
+      } else {
+        typeCounts.UNKNOWN++;
+      }
+    }
+    
+    console.log(`[Proofer] Plate type counts after normalization:`, typeCounts);
+    
+    // Store normalized payload
+    this.state.parserPayload = payloadNormalized;
     
     // Update card dimensions from payload
     // v2 format: card object is optional, derive from plates' cardPx
@@ -214,8 +245,8 @@ export class ProoferController {
     } else {
       // v2 format: derive from plates
       // Find a PRINT plate to get cardPx, or use first plate
-      const printPlate = payload.plates.find(p => p.type === 'PRINT');
-      const referencePlate = printPlate || payload.plates[0];
+      const printPlate = payloadNormalized.plates.find(p => p.type === 'PRINT');
+      const referencePlate = printPlate || payloadNormalized.plates[0];
       
       if (referencePlate?.cardPx) {
         // Convert cardPx to mm using DPI
@@ -242,30 +273,38 @@ export class ProoferController {
       this.state.cornerRadius = 5;
     }
     
-    // Derive plyCount from plate depthIndex values (not payload.card.plyCount)
-    // A ply is defined by layer_<n> - collect unique ply indices from all plates
+    // Derive plyCount from PHYSICAL ply indices (NOT depthIndex render order)
+    // depthIndex often represents render stack depth, which splits print vs finishes into different plies.
+    // We want layer_<n> (or physicalPlyIndex) to define the physical ply.
     const plyIndices = new Set<number>();
-    for (const plate of payload.plates) {
-      const plyIndex = plate.depthIndex ?? plate.physicalPlyIndex ?? 0;
+    let maxPlyIndex = 0;
+
+    for (const plate of payloadNormalized.plates) {
+      const plyIndex = this.getPlyIndex(plate);
       plyIndices.add(plyIndex);
+      if (plyIndex > maxPlyIndex) maxPlyIndex = plyIndex;
     }
-    // plyCount is max(plyIndices) + 1 (handles sparse indices)
-    const maxPlyIndex = Math.max(...Array.from(plyIndices), 0);
-    this.state.plyCount = maxPlyIndex + 1;
-    console.log(`[Proofer] Derived plyCount=${this.state.plyCount} from plate indices: [${Array.from(plyIndices).sort().join(', ')}]`);
+
+    // plyCount should cover the highest physical ply index
+    this.state.plyCount = Math.max(maxPlyIndex + 1, 1);
+
+    console.log(
+      `[Proofer] Derived plyCount=${this.state.plyCount} from physical plate indices: ` +
+      `[${Array.from(plyIndices).sort((a,b)=>a-b).join(', ')}]`
+    );
     
     // Calculate total thickness = plyCount * PLY_THICKNESS_MM (16pt per ply = 5.644mm)
     // Override any thickness set from payload.card - use computed value
     this.state.thickness = this.state.plyCount * PLY_THICKNESS_MM;
     console.log(`[Proofer] Total thickness: ${this.state.thickness.toFixed(2)}mm (${this.state.plyCount} plies × ${PLY_THICKNESS_MM}mm)`);
     
-    // Build FaceStacks: organize plates by plyIndex and face
-    const faceStacks = this.buildFaceStacks(payload.plates);
+    // Build FaceStacks: organize plates by plyIndex and face (using normalized plates)
+    const faceStacks = this.buildFaceStacks(payloadNormalized.plates);
     this.state.faceStacks = faceStacks;
     console.log(`[Proofer] Built FaceStacks for ${faceStacks.size} plies`);
     
     // Convert parser plates to ParsedPlate format
-    const parsedPlates: ParsedPlate[] = payload.plates.map(plate => {
+    const parsedPlates: ParsedPlate[] = payloadNormalized.plates.map(plate => {
       // Map parser plate type to our LayerType
       let layerType: LayerType = 'artwork';
       if (plate.type === 'FOIL_MASK') layerType = 'foil';
@@ -294,8 +333,12 @@ export class ProoferController {
     
     this.state.parsedPlates = parsedPlates;
     
-    // Auto-map plates by type/side/depthIndex
-    this.autoMapPlates(payload.plates);
+    // Auto-map plates by type/side/depthIndex (using normalized plates)
+    this.autoMapPlates(payloadNormalized.plates);
+    
+    // Auto-enable finish toggles based on actual masks in faceStacks
+    // Only on first parse - respect user's manual toggles if they've disabled them
+    this.autoEnableFinishesFromFaceStacks(faceStacks);
     
     this.notifyListeners();
   }
@@ -308,18 +351,24 @@ export class ProoferController {
   private buildFaceStacks(plates: ParserPlate[]): Map<number, PlyStack> {
     const stacks = new Map<number, PlyStack>();
 
-    // Group plates by plyIndex (depthIndex)
+    // Group plates by PHYSICAL plyIndex (NOT depthIndex)
     const platesByPly = new Map<number, ParserPlate[]>();
+
     for (const plate of plates) {
-      const plyIndex = plate.depthIndex ?? plate.physicalPlyIndex ?? 0;
+      const plyIndex = this.getPlyIndex(plate);
+
       if (!platesByPly.has(plyIndex)) {
         platesByPly.set(plyIndex, []);
       }
       platesByPly.get(plyIndex)!.push(plate);
     }
 
+    // Build PlyStack in deterministic ply order (0..N)
+    const sortedPlyIndices = Array.from(platesByPly.keys()).sort((a, b) => a - b);
+
     // Build PlyStack for each plyIndex
-    for (const [plyIndex, plyPlates] of platesByPly) {
+    for (const plyIndex of sortedPlyIndices) {
+      const plyPlates = platesByPly.get(plyIndex)!;
       const frontStack: FaceStack = {
         prints: [],
         foilMasks: [],
@@ -365,8 +414,8 @@ export class ProoferController {
 
       // Sort each array deterministically (by layer number in ID, then by ID)
       const sortPlates = (a: ParserPlate, b: ParserPlate) => {
-        const layerA = this.extractLayerNumber(a.id);
-        const layerB = this.extractLayerNumber(b.id);
+        const layerA = this.extractLayerNumber(a.file ?? a.id);
+        const layerB = this.extractLayerNumber(b.file ?? b.id);
         if (layerA !== layerB) {
           return layerA - layerB;
         }
@@ -393,11 +442,119 @@ export class ProoferController {
   }
 
   /**
+   * Normalize plate type to match internal expected types
+   * Handles various formats from meta.json (FOIL, UV, DIECUT, etc.)
+   * and filename-based fallback detection
+   */
+  private normalizePlateType(plate: ParserPlate): ParserPlateType {
+    // If already in expected format, return as-is
+    const expectedTypes: ParserPlateType[] = [
+      'PRINT',
+      'FOIL_MASK',
+      'SPOT_UV_MASK',
+      'EMBOSS',
+      'DIECUT_MASK',
+      'DIECUT_SVG'
+    ];
+    
+    if (plate.type && expectedTypes.includes(plate.type as ParserPlateType)) {
+      return plate.type as ParserPlateType;
+    }
+    
+    // Normalize common type variations
+    const typeUpper = (plate.type || '').toUpperCase();
+    
+    // Direct type mappings
+    if (typeUpper === 'FOIL' || typeUpper === 'FOIL_MASK') {
+      return 'FOIL_MASK';
+    }
+    if (typeUpper === 'UV' || typeUpper === 'SPOT_UV' || typeUpper === 'SPOT_UV_MASK') {
+      return 'SPOT_UV_MASK';
+    }
+    if (typeUpper === 'EMBOSS' || typeUpper === 'EMBOSS_MASK') {
+      return 'EMBOSS';
+    }
+    if (typeUpper === 'DIECUT' || typeUpper === 'DIECUT_MASK') {
+      return 'DIECUT_MASK';
+    }
+    if (typeUpper === 'DIECUT_SVG' || typeUpper === 'SVG') {
+      return 'DIECUT_SVG';
+    }
+    if (typeUpper === 'PRINT' || typeUpper === 'ARTWORK') {
+      return 'PRINT';
+    }
+    
+    // Filename-based fallback detection
+    const filename = (plate.file || plate.id || plate.aiLayerName || '').toLowerCase();
+    
+    if (filename.includes('spot_uv') || filename.includes('spotuv') || filename.includes('uv_mask')) {
+      return 'SPOT_UV_MASK';
+    }
+    if (filename.includes('foil') || filename.includes('foil_mask')) {
+      return 'FOIL_MASK';
+    }
+    if (filename.includes('emboss') || filename.includes('deboss')) {
+      return 'EMBOSS';
+    }
+    if (filename.includes('diecut') || filename.includes('die_cut') || filename.includes('die-cut')) {
+      // Check if it's SVG
+      if (filename.endsWith('.svg') || filename.includes('_svg')) {
+        return 'DIECUT_SVG';
+      }
+      return 'DIECUT_MASK';
+    }
+    if (filename.includes('print') || filename.includes('artwork')) {
+      return 'PRINT';
+    }
+    
+    // Default fallback: assume PRINT if unknown
+    console.warn(`[Proofer] Unknown plate type "${plate.type}" for plate ${plate.id}, defaulting to PRINT`);
+    return 'PRINT';
+  }
+
+  /**
+   * Determine the PHYSICAL ply index for a plate.
+   *
+   * IMPORTANT:
+   * - depthIndex is often render stack depth, not physical ply.
+   * - physical ply is typically encoded by layer_<n> in plate.id, or physicalPlyIndex.
+   */
+  private getPlyIndex(plate: ParserPlate): number {
+    // IMPORTANT:
+    // In current payloads, physicalPlyIndex is always present and often equals depthIndex,
+    // which behaves like render depth (splits print vs finishes).
+    // We must prefer the layer_<n> encoded in file/id/aiLayerName.
+
+    const tryParseLayer = (s?: string) => {
+      if (!s) return undefined;
+      const m = s.match(/(?:^|_)layer_(\d+)(?:_|$)/);
+      return m ? parseInt(m[1], 10) : undefined;
+    };
+
+    // 1) Prefer the exported filename (most reliable in v2)
+    const fromFile = tryParseLayer(plate.file);
+    if (fromFile !== undefined) return fromFile;
+
+    // 2) Then AI layer name (if present)
+    const fromAi = tryParseLayer(plate.aiLayerName);
+    if (fromAi !== undefined) return fromAi;
+
+    // 3) Then plate id
+    const fromId = tryParseLayer(plate.id);
+    if (fromId !== undefined) return fromId;
+
+    // 4) Fallback (better than nothing)
+    // Keep these last because they often represent render depth, not physical ply.
+    return plate.physicalPlyIndex ?? plate.depthIndex ?? 0;
+  }
+
+
+  /**
    * Extract layer number from plate ID for deterministic sorting
    * e.g., "front_layer_0_print" -> 0, "front_layer_1_print" -> 1
    */
   private extractLayerNumber(plateId: string): number {
-    const match = plateId.match(/_layer_(\d+)_/);
+    const match = plateId.match(/(?:^|_)layer_(\d+)(?:_|$)/);
     return match ? parseInt(match[1], 10) : 0;
   }
 
@@ -407,95 +564,157 @@ export class ProoferController {
   private autoMapPlates(plates: ParserPlate[]): void {
     // Clear existing assignments
     this.state.plateAssignments = {};
-    
-    // Find front base print (side=front, type=PRINT, depthIndex=0)
-    const printFront = plates.find(p => 
-      (p.face ?? p.side) === 'front' && p.type === 'PRINT' && p.depthIndex === 0
-    );
+
+    const sideOf = (p: ParserPlate): CardSide => ((p.face ?? p.side) as CardSide);
+
+    const pickLowestPly = (side: CardSide, type: ParserPlate['type']): ParserPlate | undefined => {
+      const candidates = plates.filter(p => sideOf(p) === side && p.type === type);
+      if (candidates.length === 0) return undefined;
+      candidates.sort((a, b) => this.getPlyIndex(a) - this.getPlyIndex(b));
+      return candidates[0];
+    };
+
+    // Base prints (lowest physical ply on each side)
+    const printFront = pickLowestPly('front', 'PRINT');
     if (printFront) {
       this.state.plateAssignments[printFront.id] = { type: 'artwork', side: 'front' };
-      console.log(`[Proofer] Assigned printFront=${printFront.id}`);
+      console.log(`[Proofer] Assigned printFront=${printFront.id} (ply=${this.getPlyIndex(printFront)})`);
     }
-    
-    // Find back base print (side=back, type=PRINT, depthIndex=0)
-    const printBack = plates.find(p => 
-      (p.face ?? p.side) === 'back' && p.type === 'PRINT' && p.depthIndex === 0
-    );
+
+    const printBack = pickLowestPly('back', 'PRINT');
     if (printBack) {
       this.state.plateAssignments[printBack.id] = { type: 'artwork', side: 'back' };
-      console.log(`[Proofer] Assigned printBack=${printBack.id}`);
+      console.log(`[Proofer] Assigned printBack=${printBack.id} (ply=${this.getPlyIndex(printBack)})`);
     }
-    
-    // Find foil masks
-    const foilFront = plates.find(p => 
-      (p.face ?? p.side) === 'front' && p.type === 'FOIL_MASK' && p.depthIndex === 0
-    );
+
+    // Foil masks
+    const foilFront = pickLowestPly('front', 'FOIL_MASK');
     if (foilFront) {
       this.state.optionStates.foil.enabled = true;
       this.state.optionStates.foil.side = 'front';
       this.state.plateAssignments[foilFront.id] = { type: 'foil', side: 'front' };
-      console.log(`[Proofer] Assigned foilFront=${foilFront.id}`);
+      console.log(`[Proofer] Assigned foilFront=${foilFront.id} (ply=${this.getPlyIndex(foilFront)})`);
     }
-    
-    const foilBack = plates.find(p => 
-      (p.face ?? p.side) === 'back' && p.type === 'FOIL_MASK' && p.depthIndex === 0
-    );
+
+    const foilBack = pickLowestPly('back', 'FOIL_MASK');
     if (foilBack) {
       this.state.optionStates.foil.enabled = true;
       this.state.optionStates.foil.side = 'back';
       this.state.plateAssignments[foilBack.id] = { type: 'foil', side: 'back' };
-      console.log(`[Proofer] Assigned foilBack=${foilBack.id}`);
+      console.log(`[Proofer] Assigned foilBack=${foilBack.id} (ply=${this.getPlyIndex(foilBack)})`);
     }
-    
-    // Find UV masks
-    const uvFront = plates.find(p => 
-      (p.face ?? p.side) === 'front' && p.type === 'SPOT_UV_MASK' && p.depthIndex === 0
-    );
+
+    // UV masks
+    const uvFront = pickLowestPly('front', 'SPOT_UV_MASK');
     if (uvFront) {
       this.state.optionStates.uv.enabled = true;
       this.state.optionStates.uv.side = 'front';
       this.state.plateAssignments[uvFront.id] = { type: 'uv', side: 'front' };
-      console.log(`[Proofer] Assigned uvFront=${uvFront.id}`);
+      console.log(`[Proofer] Assigned uvFront=${uvFront.id} (ply=${this.getPlyIndex(uvFront)})`);
     }
-    
-    const uvBack = plates.find(p => 
-      (p.face ?? p.side) === 'back' && p.type === 'SPOT_UV_MASK' && p.depthIndex === 0
-    );
+
+    const uvBack = pickLowestPly('back', 'SPOT_UV_MASK');
     if (uvBack) {
       this.state.optionStates.uv.enabled = true;
       this.state.optionStates.uv.side = 'back';
       this.state.plateAssignments[uvBack.id] = { type: 'uv', side: 'back' };
-      console.log(`[Proofer] Assigned uvBack=${uvBack.id}`);
+      console.log(`[Proofer] Assigned uvBack=${uvBack.id} (ply=${this.getPlyIndex(uvBack)})`);
     }
-    
-    // Find emboss
-    const embossFront = plates.find(p => 
-      (p.face ?? p.side) === 'front' && p.type === 'EMBOSS' && p.depthIndex === 0
-    );
+
+    // Emboss masks
+    const embossFront = pickLowestPly('front', 'EMBOSS');
     if (embossFront) {
       this.state.optionStates.emboss.enabled = true;
       this.state.optionStates.emboss.side = 'front';
       this.state.plateAssignments[embossFront.id] = { type: 'emboss', side: 'front' };
-      console.log(`[Proofer] Assigned embossFront=${embossFront.id}`);
+      console.log(`[Proofer] Assigned embossFront=${embossFront.id} (ply=${this.getPlyIndex(embossFront)})`);
     }
-    
-    const embossBack = plates.find(p => 
-      (p.face ?? p.side) === 'back' && p.type === 'EMBOSS' && p.depthIndex === 0
-    );
+
+    const embossBack = pickLowestPly('back', 'EMBOSS');
     if (embossBack) {
       this.state.optionStates.emboss.enabled = true;
       this.state.optionStates.emboss.side = 'back';
       this.state.plateAssignments[embossBack.id] = { type: 'emboss', side: 'back' };
-      console.log(`[Proofer] Assigned embossBack=${embossBack.id}`);
+      console.log(`[Proofer] Assigned embossBack=${embossBack.id} (ply=${this.getPlyIndex(embossBack)})`);
     }
-    
-    // Find diecut mask (can be on either side, but affects all)
-    const diecut = plates.find(p => p.type === 'DIECUT_MASK') || plates.find(p => p.type === 'DIECUT_SVG');
+
+    // Diecut (global)
+    const diecut =
+      plates.find(p => p.type === 'DIECUT_MASK') ||
+      plates.find(p => p.type === 'DIECUT_SVG');
+
     if (diecut) {
       this.state.optionStates.diecut.enabled = true;
-      this.state.optionStates.diecut.side = diecut.side;
-      this.state.plateAssignments[diecut.id] = { type: 'diecut', side: diecut.side };
+      this.state.optionStates.diecut.side = sideOf(diecut);
+      this.state.plateAssignments[diecut.id] = { type: 'diecut', side: sideOf(diecut) };
       console.log(`[Proofer] Assigned diecut=${diecut.id}`);
+    }
+  }
+
+  /**
+   * Auto-enable finish toggles based on actual masks in faceStacks
+   * Only enables if user hasn't manually disabled them
+   * Uses faceStacks as source of truth (more robust than scanning plates)
+   */
+  private autoEnableFinishesFromFaceStacks(faceStacks: Map<number, PlyStack>): void {
+    // Track if finishes exist on any side/ply
+    let hasFoilFront = false;
+    let hasFoilBack = false;
+    let hasUvFront = false;
+    let hasUvBack = false;
+    let hasEmbossFront = false;
+    let hasEmbossBack = false;
+    let hasDiecut = false;
+
+    // Scan all faceStacks to detect masks
+    for (const [plyIndex, plyStack] of faceStacks) {
+      // Check front face
+      if (plyStack.front.foilMasks.length > 0) hasFoilFront = true;
+      if (plyStack.front.uvMasks.length > 0) hasUvFront = true;
+      if (plyStack.front.embossMasks.length > 0) hasEmbossFront = true;
+      if (plyStack.front.diecut) hasDiecut = true;
+
+      // Check back face
+      if (plyStack.back.foilMasks.length > 0) hasFoilBack = true;
+      if (plyStack.back.uvMasks.length > 0) hasUvBack = true;
+      if (plyStack.back.embossMasks.length > 0) hasEmbossBack = true;
+      if (plyStack.back.diecut) hasDiecut = true;
+    }
+
+    // Auto-enable if masks exist
+    if (hasFoilFront || hasFoilBack) {
+      this.state.optionStates.foil.enabled = true;
+      if (hasFoilFront) {
+        this.state.optionStates.foil.side = 'front';
+      } else if (hasFoilBack) {
+        this.state.optionStates.foil.side = 'back';
+      }
+      console.log(`[Proofer] Auto-enabled foil (hasFront=${hasFoilFront}, hasBack=${hasFoilBack})`);
+    }
+
+    if (hasUvFront || hasUvBack) {
+      this.state.optionStates.uv.enabled = true;
+      if (hasUvFront) {
+        this.state.optionStates.uv.side = 'front';
+      } else if (hasUvBack) {
+        this.state.optionStates.uv.side = 'back';
+      }
+      console.log(`[Proofer] Auto-enabled UV (hasFront=${hasUvFront}, hasBack=${hasUvBack})`);
+    }
+
+    if (hasEmbossFront || hasEmbossBack) {
+      this.state.optionStates.emboss.enabled = true;
+      if (hasEmbossFront) {
+        this.state.optionStates.emboss.side = 'front';
+      } else if (hasEmbossBack) {
+        this.state.optionStates.emboss.side = 'back';
+      }
+      console.log(`[Proofer] Auto-enabled emboss (hasFront=${hasEmbossFront}, hasBack=${hasEmbossBack})`);
+    }
+
+    if (hasDiecut) {
+      this.state.optionStates.diecut.enabled = true;
+      console.log(`[Proofer] Auto-enabled diecut`);
     }
   }
 

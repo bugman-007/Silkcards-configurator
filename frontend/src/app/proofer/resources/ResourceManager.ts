@@ -143,6 +143,7 @@ export class ResourceManager {
   static async loadMask(path: string): Promise<THREE.Texture> {
     return this.loadTexture(path, {
       colorSpace: THREE.NoColorSpace,
+      flipY: true, // IMPORTANT: match print orientation (prints use flipY=true)
       generateMipmaps: false,
       minFilter: THREE.LinearFilter,
       magFilter: THREE.LinearFilter
@@ -435,7 +436,7 @@ export class ResourceManager {
     ctx.putImageData(out, 0, 0);
 
     const texture = new THREE.CanvasTexture(canvas);
-    texture.flipY = false;
+    texture.flipY = true; // IMPORTANT: match print orientation (prints use flipY=true)
     texture.colorSpace = THREE.NoColorSpace;
     texture.generateMipmaps = false;
     texture.minFilter = THREE.LinearFilter;
