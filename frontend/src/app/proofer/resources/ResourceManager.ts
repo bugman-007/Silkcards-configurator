@@ -319,8 +319,30 @@ export class ResourceManager {
           // Draw at specific position with size
           const drawW = rect.w || imgW;
           const drawH = rect.h || imgH;
-          console.log(`[ResourceManager] Drawing print plate ${plate.id}: imgSize=${imgW}x${imgH}, rect=${rect.x0},${rect.y0} size=${drawW}x${drawH}`);
-          ctx.drawImage(img, rect.x0, rect.y0, drawW, drawH);
+          
+          // Check if rect would place the image completely out of bounds
+          const isOutOfBounds = rect.x0 >= canvas.width || rect.y0 >= canvas.height ||
+                                rect.x0 + drawW < 0 || rect.y0 + drawH < 0;
+          
+          // Also check if image is already close to card size (full-card print)
+          // In this case, ignore rect and draw at (0,0)
+          const isSimilarToCardSize = 
+            Math.abs(imgW - canvas.width) < canvas.width * 0.1 && 
+            Math.abs(imgH - canvas.height) < canvas.height * 0.1;
+
+          if (isOutOfBounds || isSimilarToCardSize) {
+            console.log(`[ResourceManager] Print ${plate.id}: rect out of bounds or full-card sized, placing at (0,0)`, {
+              rect: { x0: rect.x0, y0: rect.y0, w: drawW, h: drawH },
+              cardSize: { w: canvas.width, h: canvas.height },
+              imgSize: { w: imgW, h: imgH },
+              isOutOfBounds,
+              isSimilarToCardSize
+            });
+            ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+          } else {
+            console.log(`[ResourceManager] Drawing print plate ${plate.id}: imgSize=${imgW}x${imgH}, rect=${rect.x0},${rect.y0} size=${drawW}x${drawH}`);
+            ctx.drawImage(img, rect.x0, rect.y0, drawW, drawH);
+          }
         } else {
           // Fallback: draw full canvas
           console.log(`[ResourceManager] Drawing print plate ${plate.id}: imgSize=${imgW}x${imgH}, filling full canvas ${canvas.width}x${canvas.height}`);
@@ -407,11 +429,40 @@ export class ResourceManager {
         const imgData = tempCtx.getImageData(0, 0, tempCanvas.width, tempCanvas.height).data;
 
         // Accumulate max into main canvas
-        const startX = rect ? rect.x0 : 0;
-        const startY = rect ? rect.y0 : 0;
+        // NOTE: rect coordinates may be artboard-relative (not card-relative)
+        // If rect is out of card bounds, fall back to placing at (0,0)
+        let startX = rect ? rect.x0 : 0;
+        let startY = rect ? rect.y0 : 0;
         const imgW = tempCanvas.width;
         const imgH = tempCanvas.height;
 
+        // Check if rect would place the mask completely out of bounds
+        const isOutOfBounds = startX >= canvas.width || startY >= canvas.height ||
+                              startX + imgW < 0 || startY + imgH < 0;
+        
+        // Also check if mask is already close to card size (full-card mask)
+        // In this case, ignore rect and draw at (0,0)
+        const isSimilarToCardSize = 
+          Math.abs(imgW - canvas.width) < canvas.width * 0.1 && 
+          Math.abs(imgH - canvas.height) < canvas.height * 0.1;
+
+        if (isOutOfBounds || isSimilarToCardSize) {
+          console.log(`[ResourceManager] Mask ${plate.id}: rect out of bounds or full-card sized, placing at (0,0)`, {
+            rect: rect ? { x0: rect.x0, y0: rect.y0, w: rect.w, h: rect.h } : null,
+            cardSize: { w: canvas.width, h: canvas.height },
+            imgSize: { w: imgW, h: imgH },
+            isOutOfBounds,
+            isSimilarToCardSize
+          });
+          startX = 0;
+          startY = 0;
+        } else {
+          console.log(`[ResourceManager] Mask ${plate.id}: using rect placement`, {
+            startX, startY, imgW, imgH, canvasW: canvas.width, canvasH: canvas.height
+          });
+        }
+
+        let writtenPixels = 0;
         for (let py = 0; py < imgH; py++) {
           for (let px = 0; px < imgW; px++) {
             const srcIdx = (py * imgW + px) * 4;
@@ -422,9 +473,11 @@ export class ResourceManager {
               for (let c = 0; c < 4; c++) {
                 accum[dstIdx + c] = Math.max(accum[dstIdx + c], imgData[srcIdx + c]);
               }
+              writtenPixels++;
             }
           }
         }
+        console.log(`[ResourceManager] Mask ${plate.id}: wrote ${writtenPixels} pixels out of ${imgW * imgH} total`);
       } catch (error) {
         console.warn(`[ResourceManager] Failed to load mask plate ${plate.id}:`, error);
       }
