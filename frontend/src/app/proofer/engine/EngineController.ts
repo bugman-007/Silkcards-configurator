@@ -45,7 +45,11 @@ export class EngineController {
 
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    this.renderer.toneMappingExposure = 1.0;
+
+    // Proofer tends to look too dark with custom ShaderMaterial + ACES.
+    // Slight bump is safe; you can later expose this as a UI slider.
+    this.renderer.toneMappingExposure = 1.25;
+
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
 
     // Create scene
@@ -174,24 +178,30 @@ export class EngineController {
       this.controls.update();
     }
 
-    // Update lighting uniforms for registered materials
-    if (this.materialsToUpdate && this.materialsToUpdate.size > 0) {
-      const lightingInfo = this.getLightingInfo();
-      this.materialsToUpdate.forEach(material => {
-        if (material.uniforms.uLightDirection) {
-          material.uniforms.uLightDirection.value.copy(lightingInfo.direction);
-        }
-        if (material.uniforms.uLightColor) {
-          material.uniforms.uLightColor.value.copy(lightingInfo.color);
-        }
-        if (material.uniforms.uAmbientColor) {
-          material.uniforms.uAmbientColor.value.copy(lightingInfo.ambient);
-        }
-        if (material.uniforms.uCameraPosition) {
-          material.uniforms.uCameraPosition.value.copy(lightingInfo.cameraPosition);
-        }
-      });
-    }
+    // Update lighting uniforms for ALL shader materials in the scene
+    const lightingInfo = this.getLightingInfo();
+
+    const applyLighting = (mat: any) => {
+      if (!mat || !mat.uniforms) return;
+
+      // Only touch our proofer shader materials
+      if (mat.uniforms.uLightDirection) mat.uniforms.uLightDirection.value.copy(lightingInfo.direction);
+      if (mat.uniforms.uLightColor) mat.uniforms.uLightColor.value.copy(lightingInfo.color);
+      if (mat.uniforms.uAmbientColor) mat.uniforms.uAmbientColor.value.copy(lightingInfo.ambient);
+      if (mat.uniforms.uCameraPosition) mat.uniforms.uCameraPosition.value.copy(lightingInfo.cameraPosition);
+    };
+
+    this.scene.traverse((obj: THREE.Object3D) => {
+      const anyObj: any = obj as any;
+      const m = anyObj.material;
+      if (!m) return;
+
+      if (Array.isArray(m)) {
+        for (const mm of m) applyLighting(mm);
+      } else {
+        applyLighting(m);
+      }
+    });
 
     // Render
     this.renderer.render(this.scene, this.camera);
@@ -211,9 +221,16 @@ export class EngineController {
     
     const keyLight = this.lightingController?.getKeyLight();
     if (keyLight) {
-      const worldPos = new THREE.Vector3();
-      keyLight.getWorldPosition(worldPos);
-      lightDirection = worldPos.normalize();
+      const lightPos = new THREE.Vector3();
+      const targetPos = new THREE.Vector3();
+
+      keyLight.getWorldPosition(lightPos);
+      keyLight.target.getWorldPosition(targetPos);
+
+      // Direction the light is pointing (from light -> target)
+      lightDirection = targetPos.sub(lightPos).normalize();
+
+      // Color already multiplied by intensity
       lightColor = keyLight.color.clone().multiplyScalar(keyLight.intensity);
     }
 
