@@ -26,6 +26,8 @@ uniform vec3 uEdgeColor;
 // Finish toggles (boolean flags)
 uniform bool foilEnabled;
 uniform bool uvEnabled;
+uniform float uUvBoost;      // overall UV intensity (1.0 default)
+uniform float uUvSpecPower;  // spec sharpness (higher = tighter highlight)
 uniform bool embossEnabled;
 uniform float embossStrength;
 uniform float embossMode; // +1.0 for emboss (raised), -1.0 for deboss (indented)
@@ -207,33 +209,32 @@ void main() {
         if (uvEnabled) {
             vec4 uvTex = texture2D(uUvMask, rotatedUv);
             float uvMaskValue = maskSample(uvTex);
+
             if (uvMaskValue > 0.01) {
+                // Mask strength
+                float uvStrength = smoothstep(0.0, 1.0, uvMaskValue) * uUvBoost;
+
                 vec3 halfDir = normalize(lightDir + viewDir);
-                
-                // Clearcoat specular highlight with perturbed normal
-                float clearcoatSpec = pow(max(dot(N, halfDir), 0.0), 32.0);
-                
-                // Fresnel term for edge highlights (view-dependent)
-                float fresnel = pow(1.0 - max(dot(N, viewDir), 0.0), 2.0);
-                
-                // UV gloss effect strength from mask
-                float uvStrength = smoothstep(0.0, 1.0, uvMaskValue);
-                
-                // Clearcoat specular contribution (additive)
-                vec3 specularHighlight = vec3(clearcoatSpec * uvStrength * 0.35);
-                
-                // Fresnel edge highlight (additive)
-                vec3 fresnelHighlight = vec3(fresnel * uvStrength * 0.2);
-                
-                // Add clearcoat brightness boost
-                vec3 clearcoatBoost = vec3(uvStrength * 0.15);
-                
-                // Combine all UV gloss contributions (additive)
-                litColor += specularHighlight + fresnelHighlight + clearcoatBoost;
-                
-                // Slight color tint for UV varnish (very subtle)
-                vec3 uvTint = vec3(0.98, 0.99, 1.0);
-                litColor = mix(litColor, litColor * uvTint, uvStrength * 0.1);
+
+                // Tighter, shinier clearcoat highlight
+                float NdotH = max(dot(N, halfDir), 0.0);
+                float clearcoatSpec = pow(NdotH, uUvSpecPower);
+
+                // View-dependent edge sheen (stronger fresnel)
+                float NdotV = max(dot(N, viewDir), 0.0);
+                float fresnel = pow(1.0 - NdotV, 5.0);
+
+                // Scale by light visibility so it doesn't glow in shadow
+                float NdotL2 = max(dot(N, lightDir), 0.0);
+
+                // Additive only (keeps print colors clear beneath UV)
+                vec3 specularHighlight = uLightColor * clearcoatSpec * NdotL2 * uvStrength * 0.85;
+                vec3 fresnelHighlight  = uLightColor * fresnel * uvStrength * 0.35;
+
+                litColor += specularHighlight + fresnelHighlight;
+
+                // IMPORTANT: remove/avoid flat "brightness lift" that makes UV look milky/hazy.
+                // (Your previous clearcoatBoost was the main reason UV looked unclear.)
             }
         }
     }
