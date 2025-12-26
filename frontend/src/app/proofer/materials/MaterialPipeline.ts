@@ -64,7 +64,7 @@ export class MaterialPipeline {
         uvEnabled: { value: false },
         // Spot UV tuning
         uUvBoost: { value: 1.35 },        // increase if you want shinier
-        uUvSpecPower: { value: 96.0 },    // 64–128 is a good range
+        uUvSpecPower: { value: 48.0 },    // 64–128 is a good range
         embossEnabled: { value: false },
         embossStrength: { value: 0.12 },
         embossMode: { value: 1.0 }, // +1.0 for emboss (raised), -1.0 for deboss (indented)

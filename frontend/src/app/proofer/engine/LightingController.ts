@@ -23,7 +23,7 @@ export class LightingController {
    * Neutral Proof lighting configuration
    */
   private readonly neutralProofConfig = {
-    ambient: 0.25,
+    ambient: 0.65,
     key: 0.8,
     fill: 0.4,
     rim: 0.6

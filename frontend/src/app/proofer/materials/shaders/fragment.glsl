@@ -196,7 +196,7 @@ void main() {
                 
                 // Metallic reflection - use reflection vector for specular with perturbed normal
                 vec3 reflectDir = reflect(-lightDir, N);
-                float specular = pow(max(dot(reflectDir, viewDir), 0.0), 32.0);
+                float specular = pow(max(dot(reflectDir, viewDir), 0.0), 16.0);
                 
                 // Blend foil with base color based on mask strength
                 float foilStrength = smoothstep(0.5, 1.0, foilMaskValue);
@@ -222,7 +222,7 @@ void main() {
 
                 // View-dependent edge sheen (stronger fresnel)
                 float NdotV = max(dot(N, viewDir), 0.0);
-                float fresnel = pow(1.0 - NdotV, 5.0);
+                float fresnel = pow(1.0 - NdotV, 3.0);
 
                 // Scale by light visibility so it doesn't glow in shadow
                 float NdotL2 = max(dot(N, lightDir), 0.0);

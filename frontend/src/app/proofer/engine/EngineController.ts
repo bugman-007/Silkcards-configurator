@@ -48,7 +48,7 @@ export class EngineController {
 
     // Proofer tends to look too dark with custom ShaderMaterial + ACES.
     // Slight bump is safe; you can later expose this as a UI slider.
-    this.renderer.toneMappingExposure = 1.25;
+    this.renderer.toneMappingExposure = 1.75;
 
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
 
