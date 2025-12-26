@@ -220,9 +220,9 @@ void main() {
                 float NdotH = max(dot(N, halfDir), 0.0);
                 float clearcoatSpec = pow(NdotH, uUvSpecPower);
 
-                // View-dependent edge sheen (stronger fresnel)
+                // View-dependent edge sheen (wider fresnel for broader coverage)
                 float NdotV = max(dot(N, viewDir), 0.0);
-                float fresnel = pow(1.0 - NdotV, 3.0);
+                float fresnel = pow(1.0 - NdotV, 2.0);
 
                 // Scale by light visibility so it doesn't glow in shadow
                 float NdotL2 = max(dot(N, lightDir), 0.0);
