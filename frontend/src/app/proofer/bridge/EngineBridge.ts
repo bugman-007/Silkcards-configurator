@@ -28,6 +28,9 @@ export class EngineBridge {
   // Composites cache: key = "ply{index}"
   private compositesCache: Map<string, Composites> = new Map();
   
+  // Die-cut geometry cache key (avoid re-parsing SVG every frame)
+  private diecutGeometryKey: string | null = null;
+  
   // Callback to notify when materials are ready (for ProoferUI)
   private onMaterialsReadyCallback: (() => void) | null = null;
 
@@ -71,7 +74,7 @@ export class EngineBridge {
     if (!frontMaterial || !backMaterial) {
       return null;
     }
-    
+
     // BoxGeometry material array: [right, left, top, bottom, front, back]
     return [
       edgeMaterial, // right
@@ -82,6 +85,43 @@ export class EngineBridge {
       backMaterial   // back
     ];
   }
+
+  getPlyCapMaterials(plyIndex: number): { front: THREE.ShaderMaterial; back: THREE.ShaderMaterial } {
+    const front = this.getMaterial(plyIndex, "front");
+    const back = this.getMaterial(plyIndex, "back");
+    if (!front || !back) throw new Error(`Missing cap materials for ply ${plyIndex}`);
+  
+    // If geometry provides holes, DO NOT let shader discard cut again.
+    if (front.uniforms?.dieCutEnabled) front.uniforms.dieCutEnabled.value = false;
+    if (back.uniforms?.dieCutEnabled) back.uniforms.dieCutEnabled.value = false;
+  
+    return { front, back };
+  }
+
+  /**
+   * Get materials for extruded geometry (ExtrudeGeometry with diecut)
+   * ExtrudeGeometry uses material groups: [sides, top, bottom]
+   * 
+   * @param plyIndex - The ply index
+   * @param sideMaterial - Material for side walls (typically MeshStandardMaterial)
+   * @returns Array of 3 materials or null if front/back materials not available
+   */
+  getPlyExtrudeMaterials(
+    plyIndex: number,
+    sideMaterial: THREE.Material
+  ): THREE.Material[] | null {
+    const frontMaterial = this.getMaterial(plyIndex, 'front');
+    const backMaterial = this.getMaterial(plyIndex, 'back');
+    if (!frontMaterial || !backMaterial) return null;
+
+    // IMPORTANT: geometry already has diecut; shader discard must be OFF
+    if (frontMaterial.uniforms?.dieCutEnabled) frontMaterial.uniforms.dieCutEnabled.value = false;
+    if (backMaterial.uniforms?.dieCutEnabled) backMaterial.uniforms.dieCutEnabled.value = false;
+
+    // ExtrudeGeometry material order: [sides, top, bottom]
+    return [sideMaterial, frontMaterial, backMaterial];
+  }
+
 
   /**
    * Get all materials (for cleanup/disposal)
@@ -113,7 +153,7 @@ export class EngineBridge {
         state.cornerRadius,
         state.plyCount || 1
       );
-    }
+  }
 
     // Update from FaceStacks if available (new architecture)
     if (state.faceStacks && state.faceStacks.size > 0) {
@@ -129,6 +169,76 @@ export class EngineBridge {
   }
 
   /**
+   * Update CardGeometry with die-cut interior walls using the DIECUT SVG.
+   * This is independent from diecut masking in the shader (which only makes a flat hole).
+   */
+  private async updateDiecutGeometry(state: ProoferState): Promise<void> {
+    const payload: any = (state as any).parserPayload ?? null;
+  
+    const jobId: string | undefined =
+      payload?.jobId ?? payload?.id ?? payload?.job ?? (state as any).jobId;
+  
+    if (!jobId) {
+      if (this.diecutGeometryKey !== null) {
+        this.diecutGeometryKey = null;
+        this.cardGeometry.setDiecutOutlines(null);
+      }
+      return;
+    }
+  
+    // Prefer ply0 diecut from FaceStacks (this is what your mask compositor uses)
+    let diecutPlate: any = null;
+    const faceStacks: any = (state as any).faceStacks;
+  
+    if (faceStacks && typeof faceStacks.values === 'function') {
+      const stacks = Array.from(faceStacks.values()) as any[];
+      const ply0 = stacks.find((s) => s?.plyIndex === 0) ?? stacks[0] ?? null;
+      diecutPlate = ply0?.front?.diecut ?? ply0?.back?.diecut ?? null;
+    }
+  
+    // Fallback: try parserPayload.plates (kept for compatibility)
+    if (!diecutPlate) {
+      const plates: any[] = Array.isArray(payload?.plates) ? payload.plates : [];
+      diecutPlate = plates.find((p) => {
+        const t = String(p?.type || '').toUpperCase();
+        return (t.includes('DIE') && t.includes('CUT')) || t === 'DIECUT' || t === 'DIE_CUT';
+      }) ?? null;
+    }
+  
+    const key = diecutPlate
+      ? `${jobId}|${diecutPlate.id ?? diecutPlate.name ?? 'diecut'}|${state.width}|${state.height}`
+      : `${jobId}|__NO_DIECUT__|${state.width}|${state.height}`;
+  
+    if (this.diecutGeometryKey === key) return;
+    this.diecutGeometryKey = key;
+  
+    if (!diecutPlate) {
+      console.log('[EngineBridge] No DIECUT plate found for geometry; clearing outlines');
+      this.cardGeometry.setDiecutOutlines(null);
+      return;
+    }
+  
+    console.log('[EngineBridge] Loading DIECUT SVG outlines for geometry:', diecutPlate.id ?? diecutPlate.name ?? '(no id)');
+  
+    const outlines = await ResourceManager.loadDiecutOutlinesForPlate(
+      diecutPlate,
+      jobId,
+      state.width,
+      state.height,
+      3 // tighter sampling than default=4
+    );
+  
+    if (!outlines || outlines.length === 0) {
+      console.warn('[EngineBridge] DIECUT SVG resolved but produced NO outlines (staying shader-only)');
+      this.cardGeometry.setDiecutOutlines(null);
+      return;
+    }
+  
+    console.log('[EngineBridge] DIECUT outlines loaded:', outlines.length, 'loop(s)');
+    this.cardGeometry.setDiecutOutlines(outlines);
+  }
+
+  /**
    * Update from FaceStacks (new architecture)
    * This is the main orchestration method
    */
@@ -138,8 +248,20 @@ export class EngineBridge {
       return;
     }
 
-    const jobId = state.parserPayload.jobId || 'unknown';
-    console.log(`[EngineBridge] Updating from FaceStacks (${state.faceStacks.size} plies)`);
+    // Ensure CardGeometry includes die-cut outlines (SVG)
+    await this.updateDiecutGeometry(state);
+
+    // FIX: jobId must match parser payload schema (jobId OR id)
+    const payload: any = state.parserPayload;
+    const jobId: string | undefined =
+      payload?.jobId ?? payload?.id ?? payload?.job ?? (state as any).jobId;
+
+    if (!jobId) {
+      console.warn('[EngineBridge] Missing jobId/id in parserPayload; cannot load composites/textures');
+      return;
+    }
+
+    console.log(`[EngineBridge] Updating from FaceStacks (${state.faceStacks.size} plies), jobId=${jobId}`);
 
     // Update debug flags on all existing materials
     this.updateDebugFlags();
@@ -233,7 +355,7 @@ export class EngineBridge {
       }
       if (composites.frontUvMask) {
         MaterialPipeline.updateUvMask(frontMaterial, composites.frontUvMask);
-      }
+    }
       if (composites.frontEmbossMask) {
         MaterialPipeline.updateEmbossMask(frontMaterial, composites.frontEmbossMask);
       }
@@ -247,7 +369,15 @@ export class EngineBridge {
     const foilFrontEnabled = state.optionStates.foil.enabled && state.optionStates.foil.side === 'front' && !!composites.frontFoilMask;
     const uvFrontEnabled = state.optionStates.uv.enabled && state.optionStates.uv.side === 'front' && !!composites.frontUvMask;
     const embossFrontEnabled = state.optionStates.emboss.enabled && state.optionStates.emboss.side === 'front' && !!composites.frontEmbossMask;
-    const diecutFrontEnabled = state.optionStates.diecut.enabled && !!composites.diecutMask;
+    
+    // Geometry diecut is only intended for ply0 (the first ply)
+    const geometryDiecutActive =
+      plyIndex === 0 &&
+      state.optionStates?.diecut?.enabled === true &&
+      this.cardGeometry.usesDiecutGeometry?.() === true;
+
+    // If geometry diecut is active, shader discard MUST be OFF (otherwise you get "paper cut")
+    const diecutFrontEnabled = state.optionStates.diecut.enabled && !!composites.diecutMask && !geometryDiecutActive;
     
     MaterialPipeline.updateFoil(frontMaterial, foilFrontEnabled);
     MaterialPipeline.updateUV(frontMaterial, uvFrontEnabled);
@@ -310,15 +440,16 @@ export class EngineBridge {
       }
       if (composites.diecutMask) {
         MaterialPipeline.updateDiecutMask(backMaterial, composites.diecutMask);
-      }
     }
+  }
 
     // Update finish toggles for back
     // Enable per-side: only enable if global toggle is on AND mask exists for this side
     const foilBackEnabled = state.optionStates.foil.enabled && state.optionStates.foil.side === 'back' && !!composites.backFoilMask;
     const uvBackEnabled = state.optionStates.uv.enabled && state.optionStates.uv.side === 'back' && !!composites.backUvMask;
     const embossBackEnabled = state.optionStates.emboss.enabled && state.optionStates.emboss.side === 'back' && !!composites.backEmbossMask;
-    const diecutBackEnabled = state.optionStates.diecut.enabled && !!composites.diecutMask;
+    
+    const diecutBackEnabled = state.optionStates.diecut.enabled && !!composites.diecutMask && !geometryDiecutActive;
     
     MaterialPipeline.updateFoil(backMaterial, foilBackEnabled);
     MaterialPipeline.updateUV(backMaterial, uvBackEnabled);

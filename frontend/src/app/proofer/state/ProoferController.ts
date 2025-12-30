@@ -235,13 +235,13 @@ export class ProoferController {
     // v2 format: card object is optional, derive from plates' cardPx
     if (payload.card) {
       // Legacy format: card object exists
-      const cardSize = payload.card.size;
-      const thicknessPt = payload.card.thicknessPt;
-      const thicknessMm = (thicknessPt / 1000) * 25.4; // Convert pt to mm (1pt = 1/1000 inch, 1 inch = 25.4mm)
-      
-      this.state.width = cardSize.widthMm;
-      this.state.height = cardSize.heightMm;
-      this.state.thickness = thicknessMm;
+    const cardSize = payload.card.size;
+    const thicknessPt = payload.card.thicknessPt;
+    const thicknessMm = (thicknessPt / 1000) * 25.4; // Convert pt to mm (1pt = 1/1000 inch, 1 inch = 25.4mm)
+    
+    this.state.width = cardSize.widthMm;
+    this.state.height = cardSize.heightMm;
+    this.state.thickness = thicknessMm;
     } else {
       // v2 format: derive from plates
       // Find a PRINT plate to get cardPx, or use first plate
@@ -557,14 +557,14 @@ export class ProoferController {
     const match = plateId.match(/(?:^|_)layer_(\d+)(?:_|$)/);
     return match ? parseInt(match[1], 10) : 0;
   }
-
+  
   /**
    * Auto-map plates to options
    */
   private autoMapPlates(plates: ParserPlate[]): void {
     // Clear existing assignments
     this.state.plateAssignments = {};
-
+    
     const sideOf = (p: ParserPlate): CardSide => ((p.face ?? p.side) as CardSide);
 
     const pickLowestPly = (side: CardSide, type: ParserPlate['type']): ParserPlate | undefined => {
@@ -580,13 +580,13 @@ export class ProoferController {
       this.state.plateAssignments[printFront.id] = { type: 'artwork', side: 'front' };
       console.log(`[Proofer] Assigned printFront=${printFront.id} (ply=${this.getPlyIndex(printFront)})`);
     }
-
+    
     const printBack = pickLowestPly('back', 'PRINT');
     if (printBack) {
       this.state.plateAssignments[printBack.id] = { type: 'artwork', side: 'back' };
       console.log(`[Proofer] Assigned printBack=${printBack.id} (ply=${this.getPlyIndex(printBack)})`);
     }
-
+    
     // Foil masks
     const foilFront = pickLowestPly('front', 'FOIL_MASK');
     if (foilFront) {
@@ -595,7 +595,7 @@ export class ProoferController {
       this.state.plateAssignments[foilFront.id] = { type: 'foil', side: 'front' };
       console.log(`[Proofer] Assigned foilFront=${foilFront.id} (ply=${this.getPlyIndex(foilFront)})`);
     }
-
+    
     const foilBack = pickLowestPly('back', 'FOIL_MASK');
     if (foilBack) {
       this.state.optionStates.foil.enabled = true;
@@ -603,7 +603,7 @@ export class ProoferController {
       this.state.plateAssignments[foilBack.id] = { type: 'foil', side: 'back' };
       console.log(`[Proofer] Assigned foilBack=${foilBack.id} (ply=${this.getPlyIndex(foilBack)})`);
     }
-
+    
     // UV masks
     const uvFront = pickLowestPly('front', 'SPOT_UV_MASK');
     if (uvFront) {
@@ -612,7 +612,7 @@ export class ProoferController {
       this.state.plateAssignments[uvFront.id] = { type: 'uv', side: 'front' };
       console.log(`[Proofer] Assigned uvFront=${uvFront.id} (ply=${this.getPlyIndex(uvFront)})`);
     }
-
+    
     const uvBack = pickLowestPly('back', 'SPOT_UV_MASK');
     if (uvBack) {
       this.state.optionStates.uv.enabled = true;
@@ -620,7 +620,7 @@ export class ProoferController {
       this.state.plateAssignments[uvBack.id] = { type: 'uv', side: 'back' };
       console.log(`[Proofer] Assigned uvBack=${uvBack.id} (ply=${this.getPlyIndex(uvBack)})`);
     }
-
+    
     // Emboss masks
     const embossFront = pickLowestPly('front', 'EMBOSS');
     if (embossFront) {
@@ -629,7 +629,7 @@ export class ProoferController {
       this.state.plateAssignments[embossFront.id] = { type: 'emboss', side: 'front' };
       console.log(`[Proofer] Assigned embossFront=${embossFront.id} (ply=${this.getPlyIndex(embossFront)})`);
     }
-
+    
     const embossBack = pickLowestPly('back', 'EMBOSS');
     if (embossBack) {
       this.state.optionStates.emboss.enabled = true;
@@ -637,7 +637,7 @@ export class ProoferController {
       this.state.plateAssignments[embossBack.id] = { type: 'emboss', side: 'back' };
       console.log(`[Proofer] Assigned embossBack=${embossBack.id} (ply=${this.getPlyIndex(embossBack)})`);
     }
-
+    
     // Diecut (global)
     const diecut =
       plates.find(p => p.type === 'DIECUT_MASK') ||

@@ -55,9 +55,6 @@ export class MaterialPipeline {
 
         // Base color tint (for stock preview)
         uBaseColor: { value: new THREE.Color(1.0, 1.0, 1.0) },
-        
-        // Edge color (for card edges)
-        uEdgeColor: { value: new THREE.Color(1.0, 1.0, 1.0) },
 
         // Finish toggles (boolean flags)
         foilEnabled: { value: false },
@@ -68,6 +65,9 @@ export class MaterialPipeline {
         embossEnabled: { value: false },
         embossStrength: { value: 0.12 },
         embossMode: { value: 1.0 }, // +1.0 for emboss (raised), -1.0 for deboss (indented)
+        // Emboss tuning: without a highlight term emboss looks flat
+        uEmbossSpecBoost: { value: 0.9 },   // 0.6–1.4 typical
+        uEmbossSpecPower: { value: 72.0 },  // 48–120 typical (higher = tighter highlight)
         dieCutEnabled: { value: false },
         
         // Debug flags (dev-only)
@@ -95,14 +95,24 @@ export class MaterialPipeline {
     return material;
   }
 
+  static createEdgeStandardMaterial(): THREE.MeshStandardMaterial {
+    return new THREE.MeshStandardMaterial({
+      color: new THREE.Color(0.95, 0.95, 0.93),
+      roughness: 0.85,
+      metalness: 0.0,
+    });
+  }
+
   /**
-   * Create a simple edge material for ply side faces
-   * @param edgeColor - Color for the edge (default: white/paper color)
-   * @returns A MeshStandardMaterial for rendering edge faces
+   * Create a PBR edge material for ply side faces (paper edge look)
+   * @param edgeColor - Color for the edge (default: off-white paper color)
+   * @returns A MeshStandardMaterial with proper roughness/metalness for paper edges
    */
-  static createEdgeMaterial(edgeColor: THREE.Color = new THREE.Color(1.0, 1.0, 1.0)): THREE.MeshStandardMaterial {
+  static createEdgeMaterial(edgeColor: THREE.Color = new THREE.Color(0.95, 0.95, 0.93)): THREE.MeshStandardMaterial {
     return new THREE.MeshStandardMaterial({
       color: edgeColor,
+      roughness: 0.8,
+      metalness: 0.0,
       side: THREE.FrontSide
     });
   }
@@ -211,21 +221,6 @@ export class MaterialPipeline {
       : new THREE.Color(color);
     if (material.uniforms.uBaseColor) {
       material.uniforms.uBaseColor.value = threeColor;
-    }
-  }
-
-  /**
-   * Update edge color (applied to card edges)
-   */
-  static updateEdgeColor(
-    material: THREE.ShaderMaterial,
-    color: THREE.Color | string
-  ): void {
-    const threeColor = color instanceof THREE.Color 
-      ? color 
-      : new THREE.Color(color);
-    if (material.uniforms.uEdgeColor) {
-      material.uniforms.uEdgeColor.value = threeColor;
     }
   }
 

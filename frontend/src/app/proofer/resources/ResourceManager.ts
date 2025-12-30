@@ -13,6 +13,13 @@ export class ResourceManager {
   private static textureLoader: TextureLoader | null = null;
   private static loadedTextures: Map<string, THREE.Texture> = new Map();
   private static loadedImages: Map<string, HTMLImageElement | ImageBitmap> = new Map();
+  // SVG text + parsed outlines cache (die-cut)
+  private static loadedSvgText: Map<string, string> = new Map();
+  // key: svgUrl|cardW|cardH|sampleStep
+  private static diecutOutlineCache: Map<string, Array<Array<THREE.Vector2>>> = new Map();
+  // key: svgUrl|pxW|pxH (rasterized mask)
+  private static diecutMaskCache: Map<string, THREE.Texture> = new Map();
+  private static diecutSvgMaskCache: Map<string, THREE.Texture> = new Map();
   private static compositeCache: Map<string, THREE.Texture> = new Map();
   private static isInitialized: boolean = false;
 
@@ -260,6 +267,602 @@ export class ResourceManager {
   }
 
   /**
+   * Get plate SVG URL (used for DIECUT outline geometry)
+   */
+  private static getPlateSvgUrl(plate: ParserPlate, jobId: string): string | null {
+    const candidates: string[] = [];
+  
+    const pushCandidate = (v: any) => {
+      if (typeof v !== 'string' || v.length === 0) return;
+      const s = v.toLowerCase();
+      if (s.startsWith('data:image/svg+xml') || s.includes('.svg')) candidates.push(v);
+    };
+  
+    const assets: any = (plate as any).assets;
+    if (assets && typeof assets === 'object') {
+      // Prefer common keys first
+      const preferredKeys = [
+        'svg',
+        'maskSvg',
+        'diecutSvg',
+        'dieCutSvg',
+        'outlineSvg',
+        'vectorSvg',
+        'cutSvg',
+        'mask_svg',
+        'diecut_svg',
+        'outline_svg',
+      ];
+      for (const k of preferredKeys) pushCandidate(assets[k]);
+  
+      // Then scan 1-level deep (covers most payload variants)
+      for (const [, v] of Object.entries(assets)) {
+        pushCandidate(v);
+        if (v && typeof v === 'object') {
+          for (const [, vv] of Object.entries(v as any)) pushCandidate(vv);
+        }
+      }
+    }
+  
+    if (candidates.length > 0) {
+      const url = rewriteAssetUrl(candidates[0]);
+      console.log(`[ResourceManager] Resolved SVG URL for ${plate.id} (scan):`, url);
+      return url;
+    }
+  
+    // Fallback: `file` may be a filename or URL
+    if (typeof plate.file === 'string' && plate.file.length > 0 && plate.file.toLowerCase().endsWith('.svg')) {
+      if (
+        plate.file.startsWith('http://') ||
+        plate.file.startsWith('https://') ||
+        plate.file.startsWith('/api/parser-proxy') ||
+        plate.file.startsWith('/')
+      ) {
+        const url = rewriteAssetUrl(plate.file);
+        console.log(`[ResourceManager] Resolved SVG URL for ${plate.id} (from file - URL):`, url);
+        return url;
+      }
+  
+      const url = rewriteAssetUrl(`/assets/${jobId}/out/${plate.file}`);
+      console.log(`[ResourceManager] Resolved SVG URL for ${plate.id} (from file - filename):`, url);
+      return url;
+    }
+  
+    return null;
+  }
+  
+
+  /**
+   * Load die-cut SVG outline(s) as polylines in CARD-LOCAL coordinates.
+   * Returned points are in the same coordinate space as CardGeometry (centered at 0,0).
+   */
+  static async loadDiecutOutlinesForPlate(
+    plate: ParserPlate,
+    jobId: string,
+    cardWidth: number,
+    cardHeight: number,
+    sampleStep: number = 4
+  ): Promise<Array<Array<THREE.Vector2>>> {
+    const url = this.getPlateSvgUrl(plate, jobId);
+    if (!url) return [];
+
+    const cacheKey = `${url}|${cardWidth}|${cardHeight}|${sampleStep}`;
+    const cached = this.diecutOutlineCache.get(cacheKey);
+    if (cached) return cached;
+
+    let svgText = this.loadedSvgText.get(url) || null;
+    if (!svgText) {
+      console.log(`[ResourceManager] Fetching die-cut SVG:`, url);
+      const res = await fetch(url);
+      if (!res.ok) {
+        console.warn(`[ResourceManager] Failed to fetch SVG ${url}:`, res.status, res.statusText);
+        return [];
+      }
+      svgText = await res.text();
+      this.loadedSvgText.set(url, svgText);
+    }
+
+    const outlines = this.parseSvgToOutlines(svgText, cardWidth, cardHeight, sampleStep);
+    this.diecutOutlineCache.set(cacheKey, outlines);
+    return outlines;
+  }
+
+  /**
+   * Parse SVG text into polylines (Vector2[][]) in CARD-LOCAL coordinates.
+   * Notes:
+   * - SVG is typically Y-down; we flip Y into Y-up for 3D.
+   * - Uses browser-native path sampling (getTotalLength / getPointAtLength).
+   */
+  private static parseSvgToOutlines(
+    svgText: string,
+    cardWidth: number,
+    cardHeight: number,
+    sampleStep: number
+  ): Array<Array<THREE.Vector2>> {
+    if (typeof document === 'undefined') return [];
+
+    const parser = new DOMParser();
+    const doc = parser.parseFromString(svgText, 'image/svg+xml');
+
+    // Import into the real document so SVGGeometry APIs work reliably
+    const svgImported = document.importNode(doc.documentElement, true) as unknown as SVGSVGElement;
+
+    const holder = document.createElement('div');
+    holder.style.position = 'absolute';
+    holder.style.left = '-10000px';
+    holder.style.top = '-10000px';
+    holder.style.width = '0';
+    holder.style.height = '0';
+    holder.style.overflow = 'hidden';
+    holder.appendChild(svgImported);
+    document.body.appendChild(holder);
+
+    // ViewBox
+    const vbAttr = svgImported.getAttribute('viewBox');
+    let vb = { x: 0, y: 0, w: 1, h: 1 };
+
+    if (vbAttr) {
+      const parts = vbAttr.split(/[\s,]+/).map(v => parseFloat(v)).filter(v => Number.isFinite(v));
+      if (parts.length === 4 && parts[2] > 0 && parts[3] > 0) {
+        vb = { x: parts[0], y: parts[1], w: parts[2], h: parts[3] };
+      }
+    } else {
+      const w = parseFloat(svgImported.getAttribute('width') || '1');
+      const h = parseFloat(svgImported.getAttribute('height') || '1');
+      vb = { x: 0, y: 0, w: Number.isFinite(w) && w > 0 ? w : 1, h: Number.isFinite(h) && h > 0 ? h : 1 };
+    }
+
+    const toLocal = (p: { x: number; y: number }): THREE.Vector2 => {
+      const u = (p.x - vb.x) / vb.w;
+      const v = (p.y - vb.y) / vb.h;
+      // x: [-w/2..+w/2], y: [+h/2..-h/2] (flip)
+      return new THREE.Vector2((u - 0.5) * cardWidth, (0.5 - v) * cardHeight);
+    };
+
+    const outlines: Array<Array<THREE.Vector2>> = [];
+
+    // PATHs
+    const paths = Array.from(svgImported.querySelectorAll('path')) as SVGPathElement[];
+    for (const path of paths) {
+      const d = path.getAttribute('d') || '';
+      if (!d.trim()) continue;
+
+      const len = path.getTotalLength();
+      if (!Number.isFinite(len) || len <= 0) continue;
+
+      const pts: THREE.Vector2[] = [];
+      const step = Math.max(1, sampleStep);
+
+      for (let t = 0; t <= len; t += step) {
+        const p = path.getPointAtLength(t);
+        pts.push(toLocal(p));
+      }
+
+      // Ensure last sample at end
+      const pend = path.getPointAtLength(len);
+      pts.push(toLocal(pend));
+
+      // De-dup consecutive points
+      const dedup: THREE.Vector2[] = [];
+      for (const p of pts) {
+        if (dedup.length === 0 || dedup[dedup.length - 1].distanceToSquared(p) > 1e-8) {
+          dedup.push(p);
+        }
+      }
+
+      // Close if it's a closed path or if endpoints are near
+      const isClosedCmd = /[zZ]\s*$/.test(d.trim());
+      if (dedup.length >= 3) {
+        const d0 = dedup[0];
+        const dN = dedup[dedup.length - 1];
+        const close = isClosedCmd || d0.distanceToSquared(dN) < 1e-6;
+        if (close && d0.distanceToSquared(dN) > 1e-6) {
+          dedup.push(d0.clone());
+        }
+        outlines.push(dedup);
+      }
+    }
+
+    // POLYGON / POLYLINE (fallback)
+    const polys = Array.from(svgImported.querySelectorAll('polygon, polyline')) as (SVGPolygonElement | SVGPolylineElement)[];
+    for (const poly of polys) {
+      const raw = (poly.getAttribute('points') || '').trim();
+      if (!raw) continue;
+      const nums = raw.split(/[\s,]+/).map(v => parseFloat(v)).filter(v => Number.isFinite(v));
+      const pts: THREE.Vector2[] = [];
+      for (let i = 0; i + 1 < nums.length; i += 2) {
+        pts.push(toLocal({ x: nums[i], y: nums[i + 1] }));
+      }
+      if (pts.length >= 3) {
+        if (pts[0].distanceToSquared(pts[pts.length - 1]) > 1e-6) pts.push(pts[0].clone());
+        outlines.push(pts);
+      }
+    }
+
+    document.body.removeChild(holder);
+
+    // Final sanity: drop tiny outlines
+    return outlines.filter(o => o.length >= 4);
+  }
+
+  /**
+   * Rasterize a DIECUT SVG into an ALPHA mask texture for fragment discard.
+   * Output convention (matches fragment.glsl + maskSample):
+   *   - alpha 1.0 (white/opaque) => HOLE => discard fragment
+   *   - alpha 0.0 (black/transparent) => KEEP => render fragment
+   */
+  private static async rasterizeDiecutSvgMask(
+    svgText: string,
+    targetW: number,
+    targetH: number
+  ): Promise<THREE.Texture | null> {
+    if (typeof document === 'undefined') return null;
+
+    const parser = new DOMParser();
+    const doc = parser.parseFromString(svgText, 'image/svg+xml');
+    const svgImported = document.importNode(doc.documentElement, true) as unknown as SVGSVGElement;
+
+    // Attach so getBBox works reliably
+    const holder = document.createElement('div');
+    holder.style.position = 'absolute';
+    holder.style.left = '-10000px';
+    holder.style.top = '-10000px';
+    holder.style.width = '0';
+    holder.style.height = '0';
+    holder.style.overflow = 'hidden';
+    holder.appendChild(svgImported);
+    document.body.appendChild(holder);
+
+    // viewBox
+    const vbAttr = svgImported.getAttribute('viewBox');
+    let vb = { x: 0, y: 0, w: 1, h: 1 };
+    if (vbAttr) {
+      const parts = vbAttr.split(/[\s,]+/).map((v) => parseFloat(v)).filter(Number.isFinite);
+      if (parts.length === 4 && parts[2] > 0 && parts[3] > 0) vb = { x: parts[0], y: parts[1], w: parts[2], h: parts[3] };
+    } else {
+      const w = parseFloat(svgImported.getAttribute('width') || '1');
+      const h = parseFloat(svgImported.getAttribute('height') || '1');
+      vb = { x: 0, y: 0, w: Number.isFinite(w) && w > 0 ? w : 1, h: Number.isFinite(h) && h > 0 ? h : 1 };
+      svgImported.setAttribute('viewBox', `0 0 ${vb.w} ${vb.h}`);
+    }
+
+    const drawable = Array.from(
+      svgImported.querySelectorAll('path, polygon, polyline, rect, circle, ellipse')
+    ) as SVGGraphicsElement[];
+
+    if (drawable.length === 0) {
+      document.body.removeChild(holder);
+      return null;
+    }
+
+    // Pick largest by bbox area (candidate "outer silhouette")
+    const vbArea = Math.max(1e-6, vb.w * vb.h);
+    let outerIndex = 0;
+    let outerArea = 0;
+
+    for (let i = 0; i < drawable.length; i++) {
+      try {
+        const b = drawable[i].getBBox();
+        const a = Math.max(0, b.width) * Math.max(0, b.height);
+        if (a > outerArea) {
+          outerArea = a;
+          outerIndex = i;
+        }
+      } catch {
+        // ignore
+      }
+    }
+
+    // Treat as "outer silhouette" if it covers most of viewBox OR it's the only shape.
+    const isOuterSilhouette = drawable.length === 1 || (outerArea / vbArea > 0.55);
+
+    // Helper: make a data-url SVG where only selected elements are filled
+    const makeSvgUrl = (mode: 'outerOnly' | 'holesOnly'): string => {
+      const clone = svgImported.cloneNode(true) as SVGSVGElement;
+      clone.setAttribute('preserveAspectRatio', 'none');
+
+      const els = Array.from(
+        clone.querySelectorAll('path, polygon, polyline, rect, circle, ellipse')
+      ) as SVGGraphicsElement[];
+
+      for (let i = 0; i < els.length; i++) {
+        const el = els[i];
+
+        // IMPORTANT: inline style overrides attributes; remove it
+        el.removeAttribute('style');
+
+        // Make it a clean filled shape
+        el.setAttribute('stroke', 'none');
+        el.setAttribute('stroke-width', '0');
+
+        const shouldFill =
+          mode === 'outerOnly'
+            ? i === outerIndex
+            : (isOuterSilhouette ? i !== outerIndex : true);
+
+        if (shouldFill) {
+          el.setAttribute('fill', '#ffffff'); // opaque => alpha 1 in raster
+        } else {
+          el.setAttribute('fill', 'none'); // transparent
+        }
+      }
+
+      const serialized = new XMLSerializer().serializeToString(clone);
+      return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(serialized)}`;
+    };
+
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.max(1, Math.floor(targetW));
+    canvas.height = Math.max(1, Math.floor(targetH));
+    const ctx = canvas.getContext('2d', { willReadFrequently: true, alpha: true });
+    if (!ctx) {
+      document.body.removeChild(holder);
+      return null;
+    }
+
+    const drawSvg = async (url: string) => {
+      const img = new Image();
+      img.crossOrigin = 'anonymous';
+      await new Promise<void>((resolve, reject) => {
+        img.onload = () => resolve();
+        img.onerror = () => reject(new Error('Failed to load SVG image'));
+        img.src = url;
+      });
+      ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+    };
+
+    // Build ALPHA mask:
+    // - if we have an outer silhouette: start opaque everywhere (holes),
+    //   carve the silhouette interior to transparent (keep), then add holes back.
+    // - else: start transparent (keep) and draw holes as opaque.
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    if (isOuterSilhouette) {
+      // Start as fully "hole"
+      ctx.globalCompositeOperation = 'source-over';
+      ctx.fillStyle = 'rgba(255,255,255,1)';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+      // Clear inside outer silhouette => keep
+      ctx.globalCompositeOperation = 'destination-out';
+      await drawSvg(makeSvgUrl('outerOnly'));
+
+      // Add inner holes (opaque) back in
+      ctx.globalCompositeOperation = 'source-over';
+      if (drawable.length > 1) {
+        await drawSvg(makeSvgUrl('holesOnly'));
+      }
+    } else {
+      // Hole-only: draw holes onto transparent keep
+      ctx.globalCompositeOperation = 'source-over';
+      await drawSvg(makeSvgUrl('holesOnly'));
+    }
+
+    ctx.globalCompositeOperation = 'source-over';
+    
+    // INVERT: The shader discards where alpha > 0.5, so we need:
+    // - Holes = white/opaque (alpha 1.0) => will be discarded
+    // - Keep = black/transparent (alpha 0.0) => will be kept
+    // Current mask is inverted, so invert the alpha channel
+    const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+    const data = imageData.data;
+    for (let i = 3; i < data.length; i += 4) {
+      // Invert alpha channel (keep RGB for debugging, but alpha is what matters)
+      data[i] = 255 - data[i];
+    }
+    ctx.putImageData(imageData, 0, 0);
+    
+    document.body.removeChild(holder);
+
+    const tex = new THREE.CanvasTexture(canvas);
+    tex.flipY = true;
+    tex.colorSpace = THREE.NoColorSpace;
+    tex.generateMipmaps = false;
+    tex.minFilter = THREE.LinearFilter;
+    tex.magFilter = THREE.LinearFilter;
+    tex.needsUpdate = true;
+
+    return tex;
+  }
+
+  private static async loadDiecutMaskForPlate(
+    plate: ParserPlate,
+    jobId: string,
+    cardPx: CardPx
+  ): Promise<THREE.Texture | null> {
+    // 1) PNG mask first (only if this plate is a DIECUT_MASK)
+    if (plate.type === 'DIECUT_MASK') {
+      const pngUrl = this.getPlateImageUrl(plate, jobId);
+      if (pngUrl) {
+        try {
+          return await this.loadMask(pngUrl);
+        } catch (e) {
+          console.warn('[ResourceManager] Failed to load diecut PNG:', pngUrl, e);
+        }
+      }
+    }
+
+    // 2) SVG -> rasterized mask
+    const svgUrl = this.getPlateSvgUrl(plate, jobId);
+    if (!svgUrl) return null;
+
+    const cacheKey = `${svgUrl}|${cardPx.w}|${cardPx.h}`;
+    const cached = this.diecutMaskCache.get(cacheKey);
+    if (cached) return cached;
+
+    let svgText = this.loadedSvgText.get(svgUrl) || null;
+    if (!svgText) {
+      const res = await fetch(svgUrl);
+      if (!res.ok) {
+        console.warn('[ResourceManager] Failed to fetch diecut SVG:', svgUrl, res.status, res.statusText);
+        return null;
+      }
+      svgText = await res.text();
+      this.loadedSvgText.set(svgUrl, svgText);
+    }
+
+    const tex = await this.rasterizeDiecutSvgMask(svgText, cardPx.w, cardPx.h);
+    if (tex) this.diecutMaskCache.set(cacheKey, tex);
+    return tex;
+  }
+
+  private static async loadDiecutMaskFromPlate(
+    plate: ParserPlate,
+    jobId: string,
+    cardSize: CardPx
+  ): Promise<THREE.Texture | null> {
+    const svgUrl = this.getPlateSvgUrl(plate, jobId);
+  
+    if (svgUrl) {
+      const cacheKey = `${svgUrl}|${cardSize.w}|${cardSize.h}`;
+      const cached = this.diecutSvgMaskCache.get(cacheKey);
+      if (cached) return cached;
+  
+      try {
+        console.log('[ResourceManager] DIECUT mask: trying SVG', svgUrl);
+        const res = await fetch(svgUrl);
+        if (!res.ok) throw new Error(`HTTP ${res.status} ${res.statusText}`);
+  
+        const svgText = await res.text();
+        const tex = await this.rasterizeDiecutSvgToFilledMask(svgText, cardSize.w, cardSize.h);
+  
+        if (tex) {
+          this.diecutSvgMaskCache.set(cacheKey, tex);
+          console.log('[ResourceManager] DIECUT mask: using FILLED SVG mask');
+          return tex;
+        }
+  
+        console.warn('[ResourceManager] DIECUT mask: SVG rasterize returned null, falling back to PNG');
+      } catch (e) {
+        console.warn('[ResourceManager] DIECUT mask: SVG failed, falling back to PNG', e);
+      }
+    } else {
+      console.warn('[ResourceManager] DIECUT mask: no SVG URL found, falling back to PNG', {
+        plateId: plate.id,
+        assets: (plate as any).assets,
+        file: (plate as any).file,
+      });
+    }
+  
+    // PNG fallback (might be outline-only, but better than nothing)
+    const url = this.getPlateImageUrl(plate, jobId);
+    if (!url) return null;
+  
+    try {
+      console.log('[ResourceManager] DIECUT mask: using PNG', url);
+      return await this.loadMask(url);
+    } catch (e) {
+      console.warn('[ResourceManager] Failed to load diecut PNG mask:', e);
+      return null;
+    }
+  }  
+
+  private static async rasterizeDiecutSvgToFilledMask(
+    svgText: string,
+    targetW: number,
+    targetH: number
+  ): Promise<THREE.Texture | null> {
+    if (typeof document === 'undefined') return null;
+  
+    const parser = new DOMParser();
+    const doc = parser.parseFromString(svgText, 'image/svg+xml');
+    const svg = document.importNode(doc.documentElement, true) as unknown as SVGSVGElement;
+  
+    svg.setAttribute('width', String(targetW));
+    svg.setAttribute('height', String(targetH));
+    svg.setAttribute('preserveAspectRatio', 'none');
+    if (!svg.getAttribute('viewBox')) svg.setAttribute('viewBox', `0 0 ${targetW} ${targetH}`);
+  
+    // Attach offscreen so getBBox works reliably
+    const holder = document.createElement('div');
+    holder.style.position = 'absolute';
+    holder.style.left = '-10000px';
+    holder.style.top = '-10000px';
+    holder.style.opacity = '0';
+    document.body.appendChild(holder);
+    holder.appendChild(svg);
+  
+    const els = Array.from(svg.querySelectorAll('path, rect, circle, ellipse, polygon, polyline')) as SVGGraphicsElement[];
+    if (els.length === 0) {
+      holder.remove();
+      return null;
+    }
+  
+    // Compute largest bbox (potential "outer silhouette")
+    const vb = svg.viewBox.baseVal;
+    const vbW = vb && vb.width > 0 ? vb.width : targetW;
+    const vbH = vb && vb.height > 0 ? vb.height : targetH;
+    const vbArea = Math.max(1e-6, vbW * vbH);
+  
+    let largest: SVGGraphicsElement | null = null;
+    let largestArea = 0;
+  
+    for (const el of els) {
+      try {
+        const bb = el.getBBox();
+        const a = Math.abs(bb.width * bb.height);
+        if (a > largestArea) {
+          largestArea = a;
+          largest = el;
+        }
+      } catch {
+        // ignore
+      }
+    }
+  
+    const looksLikeOuterSilhouette = !!largest && els.length > 1 && (largestArea / vbArea) > 0.80;
+  
+    // FORCE FILLED MASK:
+    // - remove inline style (critical, otherwise fill:none wins)
+    // - remove stroke
+    // - fill white for hole shapes
+    for (const el of els) {
+      el.removeAttribute('style');
+      el.setAttribute('stroke', 'none');
+      el.setAttribute('stroke-width', '0');
+      el.setAttribute('fill', '#ffffff');
+    }
+  
+    // If we detected an outer silhouette, do NOT fill it (we want holes, not full-card cutout)
+    if (looksLikeOuterSilhouette && largest) {
+      largest.setAttribute('fill', 'none');
+    }
+  
+    const serialized = new XMLSerializer().serializeToString(svg);
+    holder.remove();
+  
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.max(1, Math.floor(targetW));
+    canvas.height = Math.max(1, Math.floor(targetH));
+  
+    const ctx = canvas.getContext('2d', { alpha: true });
+    if (!ctx) return null;
+  
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+  
+    await new Promise<void>((resolve, reject) => {
+      const img = new Image();
+      img.crossOrigin = 'anonymous';
+      img.onload = () => {
+        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+        resolve();
+      };
+      img.onerror = () => reject(new Error('Failed to load SVG for diecut rasterization'));
+      img.src = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(serialized)}`;
+    });
+  
+    const tex = new THREE.CanvasTexture(canvas);
+    tex.flipY = true;
+    tex.colorSpace = THREE.NoColorSpace;
+    tex.generateMipmaps = false;
+    tex.minFilter = THREE.LinearFilter;
+    tex.magFilter = THREE.LinearFilter;
+    tex.needsUpdate = true;
+    return tex;
+  }  
+
+  /**
    * Composite PRINT plates: alpha blend in order (normal alpha over)
    */
   private static async compositePrints(
@@ -354,7 +957,7 @@ export class ResourceManager {
     }
 
     const texture = new THREE.CanvasTexture(canvas);
-    texture.flipY = true;
+          texture.flipY = true;
     texture.rotation = 0; // No rotation - use UVs directly from geometry
     texture.colorSpace = THREE.SRGBColorSpace;
     texture.needsUpdate = true;
@@ -554,23 +1157,18 @@ export class ResourceManager {
 
     // Diecut (single plate, prefer front if both exist)
     let diecutMask: THREE.Texture | null = null;
+
     if (plyStack.front.diecut) {
-      const url = this.getPlateImageUrl(plyStack.front.diecut, jobId);
-      if (url) {
-        try {
-          diecutMask = await this.loadMask(url);
-        } catch (error) {
-          console.warn(`[ResourceManager] Failed to load diecut:`, error);
-        }
+      try {
+        diecutMask = await this.loadDiecutMaskFromPlate(plyStack.front.diecut, jobId, cardSize);
+      } catch (error) {
+        console.warn(`[ResourceManager] Failed to build diecut mask (front):`, error);
       }
     } else if (plyStack.back.diecut) {
-      const url = this.getPlateImageUrl(plyStack.back.diecut, jobId);
-      if (url) {
-        try {
-          diecutMask = await this.loadMask(url);
-        } catch (error) {
-          console.warn(`[ResourceManager] Failed to load diecut:`, error);
-        }
+      try {
+        diecutMask = await this.loadDiecutMaskFromPlate(plyStack.back.diecut, jobId, cardSize);
+      } catch (error) {
+        console.warn(`[ResourceManager] Failed to build diecut mask (back):`, error);
       }
     }
 

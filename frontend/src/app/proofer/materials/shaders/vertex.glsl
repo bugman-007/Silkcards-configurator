@@ -1,33 +1,26 @@
 precision highp float;
 
-attribute float faceType;
-attribute float plyIndex; // Ply index for material selection
-
 varying vec2 vUv;
 varying vec3 vNormal;
 varying vec3 vWorldPosition;
-varying float vFaceType;
-varying float vPlyIndex; // Pass ply index to fragment shader
 
 // DEV: explode view spacing (world units, same unit as geometry: mm if geometry is mm)
 uniform float uDevLayerSpacing;
+// Face identifier (0.0 = front, 1.0 = back) - set per material
+uniform float uIsFront;
 
 void main() {
     vUv = uv;
     vNormal = normalize(normalMatrix * normal);
-    vFaceType = faceType;
-    vPlyIndex = plyIndex;
     
-    // DEV: explode front/back away from the edge band for debugging
+    // DEV: explode front/back caps for debugging (sides/walls use a different material)
     vec3 pos = position;
     if (uDevLayerSpacing != 0.0) {
-        // faceType: 0=front, 1=back, 2=edge
-        if (faceType < 0.5) {
+        if (uIsFront > 0.5) {
             pos.z += uDevLayerSpacing;   // front outwards
-        } else if (faceType < 1.5) {
+        } else {
             pos.z -= uDevLayerSpacing;   // back outwards
         }
-        // edge band (faceType >= 1.5) stays put, so gaps appear
     }
     
     // Calculate world position for lighting calculations

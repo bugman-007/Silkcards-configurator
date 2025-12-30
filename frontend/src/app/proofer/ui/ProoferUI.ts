@@ -145,20 +145,39 @@ export class ProoferUI {
    * This ensures the card is always visible, even before parser payload is loaded
    */
   private createPlaceholderMesh(state: any): void {
-    // Create placeholder box mesh for ply 0 (default single-ply)
+    // Create placeholder mesh for ply 0 (default single-ply)
     const plyIndex = 0;
     const plyKey = `ply${plyIndex}`;
     
     if (!this.plyMeshes.has(plyKey)) {
-      const { geometry, centerZ } = this.cardGeometry.createPlyBoxGeometry(plyIndex);
-      const placeholderMaterial = this.createPlaceholderMaterial(true);
-      const plyMesh = new THREE.Mesh(geometry, placeholderMaterial);
+      const placeholderFront = this.createPlaceholderMaterial(true);
+      const placeholderBack = this.createPlaceholderMaterial(false);
+      const edgeMat = MaterialPipeline.createEdgeStandardMaterial();
+
+      // Get diecut outlines once (they may be empty)
+      const diecutOutlines = this.cardGeometry.getDiecutOutlines();
+
+      // Build ALL plies as extruded geometry so edges are always real + lit.
+      // If diecutOutlines exist and diecut is enabled, extrusion includes holes.
+      const diecutEnabled = state.optionStates?.diecut?.enabled === true;
+      const outlinesForGeom = diecutEnabled ? diecutOutlines : [];
+
+      const { geometry, centerZ } = this.cardGeometry.createPlyExtrudedGeometryFromDiecut(
+        plyIndex,
+        outlinesForGeom
+      );
+
+      // ExtrudeGeometry group material order: [sides, top(+z)=front, bottom(-z)=back]
+      const placeholderMaterials = [edgeMat, placeholderFront, placeholderBack];
+
+      const plyMesh = new THREE.Mesh(geometry, placeholderMaterials);
       plyMesh.position.z = centerZ;
       this.originalMeshPositions.set(plyKey, centerZ);
       this.plyMeshes.set(plyKey, plyMesh);
       this.engineController.add(plyMesh);
-      this.engineController.registerMaterialForLighting(placeholderMaterial);
-      console.log('[ProoferUI] Created placeholder box mesh for initial display');
+      this.engineController.registerMaterialForLighting(placeholderFront);
+      this.engineController.registerMaterialForLighting(placeholderBack);
+      console.log('[ProoferUI] Created placeholder ply mesh for initial display');
     }
   }
 
@@ -200,13 +219,22 @@ export class ProoferUI {
       1.0 // Always use normal spacing - dev mode uses shader offset
     );
     
-    // Update geometries for existing box meshes (don't remove them - just update)
+    // Get diecut outlines once (they may be empty)
+    const diecutOutlines = this.cardGeometry.getDiecutOutlines();
+    const diecutEnabled = state.optionStates?.diecut?.enabled === true;
+    const outlinesForGeom = diecutEnabled ? diecutOutlines : [];
+
+    // Update geometries for existing ply meshes (don't remove them - just update)
     // This avoids flickering and ensures meshes stay visible
     for (const [key, mesh] of this.plyMeshes) {
       const match = key.match(/ply(\d+)/);
       if (match) {
         const plyIndex = parseInt(match[1], 10);
-        const { geometry: newGeometry, centerZ } = this.cardGeometry.createPlyBoxGeometry(plyIndex);
+        // Always use extruded geometry for real edges
+        const { geometry: newGeometry, centerZ } = this.cardGeometry.createPlyExtrudedGeometryFromDiecut(
+          plyIndex,
+          outlinesForGeom
+        );
         if (mesh.geometry !== newGeometry) {
           if (mesh.geometry) {
             mesh.geometry.dispose();
@@ -243,73 +271,83 @@ export class ProoferUI {
     let allMaterialsReady = true;
     let needsRetry = false;
 
-    // For each ply in FaceStacks, create/update box mesh (with front/back/edge materials)
+    // For each ply in FaceStacks, create/update ply mesh (box or extrude)
     for (const [plyIndex, plyStack] of state.faceStacks) {
-      // Box mesh (one per ply, not separate front/back)
+      // One mesh per ply (not separate front/back)
       const plyKey = `ply${plyIndex}`;
       let plyMesh = this.plyMeshes.get(plyKey);
       const frontMaterial = this.engineBridge.getMaterial(plyIndex, 'front');
       const backMaterial = this.engineBridge.getMaterial(plyIndex, 'back');
       
-      // Create edge material for side faces
-      const edgeMaterial = MaterialPipeline.createEdgeMaterial(new THREE.Color(1.0, 1.0, 1.0));
-      
-      // Get materials array for box (BoxGeometry order: [right, left, top, bottom, front, back])
-      const boxMaterials = this.engineBridge.getPlyBoxMaterials(plyIndex, edgeMaterial);
-      
-      if (boxMaterials && frontMaterial && backMaterial) {
-        // Materials ready - create/update box mesh
-        const { geometry, centerZ } = this.cardGeometry.createPlyBoxGeometry(plyIndex);
-        
+      const diecutEnabled = state.optionStates?.diecut?.enabled === true;
+      // Geometry diecut only for ply0
+      const useDiecutGeometry = diecutEnabled && plyIndex === 0 && this.cardGeometry.usesDiecutGeometry();
+
+      const sideMaterial = MaterialPipeline.createEdgeMaterial(new THREE.Color(1.0, 1.0, 1.0));
+
+      const plyMaterials = useDiecutGeometry
+        ? this.engineBridge.getPlyExtrudeMaterials(plyIndex, sideMaterial)
+        : this.engineBridge.getPlyBoxMaterials(plyIndex, sideMaterial);
+
+      if (plyMaterials && frontMaterial && backMaterial) {
+        const { geometry, centerZ } = useDiecutGeometry
+          ? this.cardGeometry.createPlyExtrudedGeometry(plyIndex)
+          : this.cardGeometry.createPlyBoxGeometry(plyIndex);
+
         if (!plyMesh) {
-          // Create new box mesh
-          plyMesh = new THREE.Mesh(geometry, boxMaterials);
+          plyMesh = new THREE.Mesh(geometry, plyMaterials);
           plyMesh.position.z = centerZ;
-          // Store original Z position
           this.originalMeshPositions.set(plyKey, centerZ);
           this.plyMeshes.set(plyKey, plyMesh);
           this.engineController.add(plyMesh);
-          // Register materials for lighting updates
-          this.engineController.registerMaterialForLighting(frontMaterial);
-          this.engineController.registerMaterialForLighting(backMaterial);
-          console.log(`[ProoferUI] Created box mesh for ply ${plyIndex} with materials`, {
-            hasFrontPrint: !!frontMaterial.uniforms.uPrintMap?.value,
-            hasBackPrint: !!backMaterial.uniforms.uPrintMap?.value
-          });
         } else {
-          // Update existing mesh
-          // Update materials array
-          plyMesh.material = boxMaterials;
-          // Update geometry
-          if (plyMesh.geometry !== geometry) {
-            if (plyMesh.geometry) {
-              plyMesh.geometry.dispose();
-            }
-            plyMesh.geometry = geometry;
-            // Update position to match new geometry centerZ
-            plyMesh.position.z = centerZ;
-            this.originalMeshPositions.set(plyKey, centerZ);
-          }
-          // Register materials for lighting updates
-          this.engineController.registerMaterialForLighting(frontMaterial);
-          this.engineController.registerMaterialForLighting(backMaterial);
-          console.log(`[ProoferUI] Updated box mesh for ply ${plyIndex}`);
+          plyMesh.material = plyMaterials;
+          plyMesh.geometry.dispose();
+          plyMesh.geometry = geometry;
+          plyMesh.position.z = centerZ;
+          this.originalMeshPositions.set(plyKey, centerZ);
         }
+
+        this.engineController.registerMaterialForLighting(frontMaterial);
+        this.engineController.registerMaterialForLighting(backMaterial);
+        console.log(`[ProoferUI] Updated ply mesh for ply ${plyIndex}`, {
+          hasFrontPrint: !!frontMaterial.uniforms.uPrintMap?.value,
+          hasBackPrint: !!backMaterial.uniforms.uPrintMap?.value,
+          useDiecutGeometry
+        });
       } else {
         // Materials not ready yet
         allMaterialsReady = false;
         if (!plyMesh) {
-          // Create placeholder box mesh
-          const { geometry, centerZ } = this.cardGeometry.createPlyBoxGeometry(plyIndex);
-          const placeholderMaterial = this.createPlaceholderMaterial(true);
-          // Use single placeholder material for all faces (will be replaced when materials ready)
-          plyMesh = new THREE.Mesh(geometry, placeholderMaterial);
+          // Create placeholder ply mesh
+          const placeholderFront = this.createPlaceholderMaterial(true);
+          const placeholderBack = this.createPlaceholderMaterial(false);
+          const edgeMat = MaterialPipeline.createEdgeStandardMaterial();
+
+          // Get diecut outlines once (they may be empty)
+          const diecutOutlines = this.cardGeometry.getDiecutOutlines();
+
+          // Build ALL plies as extruded geometry so edges are always real + lit.
+          // If diecutOutlines exist and diecut is enabled, extrusion includes holes.
+          const diecutEnabled = state.optionStates?.diecut?.enabled === true;
+          const outlinesForGeom = diecutEnabled ? diecutOutlines : [];
+
+          const { geometry, centerZ } = this.cardGeometry.createPlyExtrudedGeometryFromDiecut(
+            plyIndex,
+            outlinesForGeom
+          );
+
+          // ExtrudeGeometry group material order: [sides, top(+z)=front, bottom(-z)=back]
+          const placeholderMaterials = [edgeMat, placeholderFront, placeholderBack];
+
+          plyMesh = new THREE.Mesh(geometry, placeholderMaterials);
           plyMesh.position.z = centerZ;
           this.originalMeshPositions.set(plyKey, centerZ);
           this.plyMeshes.set(plyKey, plyMesh);
           this.engineController.add(plyMesh);
-          this.engineController.registerMaterialForLighting(placeholderMaterial);
-          console.log(`[ProoferUI] Created placeholder box mesh for ply ${plyIndex} (waiting for materials)`);
+          this.engineController.registerMaterialForLighting(placeholderFront);
+          this.engineController.registerMaterialForLighting(placeholderBack);
+          console.log(`[ProoferUI] Created placeholder ply mesh for ply ${plyIndex} (waiting for materials)`);
           needsRetry = true;
         }
       }
