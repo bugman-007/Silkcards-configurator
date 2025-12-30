@@ -85,7 +85,7 @@ export class ProoferUI {
       width: state.width,
       height: state.height,
       thickness: state.thickness,
-      cornerRadius: state.cornerRadius,
+      cornerRadius: 0,
       plyCount: state.plyCount || 1,
       spacingMultiplier: 1.0 // Always normal spacing - dev mode uses shader
     });
@@ -214,7 +214,7 @@ export class ProoferUI {
       state.width,
       state.height,
       state.thickness,
-      state.cornerRadius,
+      0,
       plyCount,
       1.0 // Always use normal spacing - dev mode uses shader offset
     );

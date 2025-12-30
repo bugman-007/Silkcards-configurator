@@ -42,12 +42,16 @@ export class CardGeometry {
     this.width = options.width;
     this.height = options.height;
     this.thickness = options.thickness;
-    this.cornerRadius = options.cornerRadius;
+  
+    // QUICK FIX: force square corners regardless of design/meta
+    this.cornerRadius = 0;
+  
     this.plyCount = options.plyCount || 1;
     this.spacingMultiplier = options.spacingMultiplier ?? 1.0;
+  
     this._geometry = new THREE.BufferGeometry();
     this.buildGeometry();
-  }
+  }  
 
   /**
    * Update card dimensions and rebuild geometry
