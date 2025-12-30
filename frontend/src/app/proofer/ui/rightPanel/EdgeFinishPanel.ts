@@ -129,7 +129,7 @@ export class EdgeFinishPanel {
 
     // Foil info label (only show when mode is 'foil')
     this.foilLabel = document.createElement('div');
-    this.foilLabel.textContent = 'Cold Foil (28pt only)';
+    this.foilLabel.textContent = 'Cold Foil (2+ layers)';
     this.foilLabel.style.display = 'none';
     this.foilLabel.style.marginLeft = '24px';
     this.foilLabel.style.fontSize = '11px';
@@ -153,12 +153,11 @@ export class EdgeFinishPanel {
       const state = this.controller.getState();
       const newMode = this.modeSelect.value as 'color' | 'foil';
       
-      // Check if foil is available (28pt only)
-      const thicknessPt = this.getThicknessInPoints();
-      if (newMode === 'foil' && thicknessPt !== 28) {
-        // Force back to color if not 28pt
+      // Check if foil is available (requires 2+ layers)
+      if (newMode === 'foil' && state.plyCount < 2) {
+        // Force back to color if less than 2 plies
         this.modeSelect.value = 'color';
-        alert('Cold Foil is only available for 28pt cards. Please select Color mode.');
+        alert('Cold Foil is only available for cards with 2 or more layers. Please select Color mode.');
         return;
       }
       
@@ -182,51 +181,13 @@ export class EdgeFinishPanel {
     });
   }
 
-  /**
-   * Get thickness in points (helper to match controller logic)
-   */
-  private getThicknessInPoints(): number {
-    const state = this.controller.getState();
-    const thicknessMm = state.thickness;
-    
-    // Known thicknesses in mm (approximate):
-    const thickness28ptMm = 0.98777; // Approximate 28pt in mm
-    const tolerance = 0.1; // 0.1mm tolerance
-    
-    if (Math.abs(thicknessMm - thickness28ptMm) < tolerance) {
-      return 28;
-    }
-    
-    const thickness16ptMm = 0.56444;
-    if (Math.abs(thicknessMm - thickness16ptMm) < tolerance) {
-      return 16;
-    }
-    
-    const thickness32ptMm = 1.12888;
-    if (Math.abs(thicknessMm - thickness32ptMm) < tolerance) {
-      return 32;
-    }
-    
-    const thickness45ptMm = 1.5875;
-    if (Math.abs(thicknessMm - thickness45ptMm) < tolerance) {
-      return 45;
-    }
-    
-    const thickness48ptMm = 1.69332;
-    if (Math.abs(thicknessMm - thickness48ptMm) < tolerance) {
-      return 48;
-    }
-    
-    return 0;
-  }
 
   /**
    * Update UI based on state
    */
   private updateUI(): void {
     const state = this.controller.getState();
-    const thicknessPt = this.getThicknessInPoints();
-    const is28pt = thicknessPt === 28;
+    const hasMultipleLayers = state.plyCount >= 2;
 
     // Update checkbox
     this.checkbox.checked = state.edgeFinish.enabled;
@@ -238,11 +199,11 @@ export class EdgeFinishPanel {
     // Update mode selector
     this.modeSelect.value = state.edgeFinish.mode;
 
-    // Disable foil option if not 28pt
+    // Disable foil option if less than 2 plies
     const foilOption = this.modeSelect.querySelector('option[value="foil"]') as HTMLOptionElement;
     if (foilOption) {
-      foilOption.disabled = !is28pt;
-      if (!is28pt && state.edgeFinish.mode === 'foil') {
+      foilOption.disabled = !hasMultipleLayers;
+      if (!hasMultipleLayers && state.edgeFinish.mode === 'foil') {
         // Force to color if foil was selected but not available
         this.controller.updateEdgeFinish({ mode: 'color' });
         this.modeSelect.value = 'color';

@@ -76,11 +76,10 @@ export class ProoferController {
     this.state.thickness = thickness;
     this.state.cornerRadius = cornerRadius;
     
-    // Auto-disable foil mode if thickness changed and is no longer 28pt
+    // Auto-disable foil mode if plyCount is less than 2 (foil requires 2+ layers)
     if (this.state.edgeFinish.enabled && this.state.edgeFinish.mode === 'foil') {
-      const thicknessPt = this.getThicknessInPoints();
-      if (thicknessPt !== 28) {
-        // Force to color mode if not 28pt
+      if (this.state.plyCount < 2) {
+        // Force to color mode if less than 2 plies
         this.state.edgeFinish.mode = 'color';
       }
     }
@@ -145,11 +144,10 @@ export class ProoferController {
   updateEdgeFinish(state: Partial<import('./ProoferState.js').EdgeFinishState>): void {
     this.state.edgeFinish = { ...this.state.edgeFinish, ...state };
     
-    // Auto-disable foil mode if thickness is not 28pt
+    // Auto-disable foil mode if plyCount is less than 2 (foil requires 2+ layers)
     if (state.mode === 'foil' || this.state.edgeFinish.mode === 'foil') {
-      const thicknessPt = this.getThicknessInPoints();
-      if (thicknessPt !== 28) {
-        // Force to color mode if not 28pt
+      if (this.state.plyCount < 2) {
+        // Force to color mode if less than 2 plies
         this.state.edgeFinish.mode = 'color';
       }
     }
@@ -382,14 +380,15 @@ export class ProoferController {
     
     // Calculate total thickness = plyCount * PLY_THICKNESS_MM (16pt per ply = 5.644mm)
     // Override any thickness set from payload.card - use computed value
+    const oldPlyCount = this.state.plyCount;
     this.state.thickness = this.state.plyCount * PLY_THICKNESS_MM;
     console.log(`[Proofer] Total thickness: ${this.state.thickness.toFixed(2)}mm (${this.state.plyCount} plies × ${PLY_THICKNESS_MM}mm)`);
     
-    // Auto-disable foil mode if thickness is not 28pt
+    // Auto-disable foil mode if plyCount changed and is now less than 2 (foil requires 2+ layers)
     if (this.state.edgeFinish.enabled && this.state.edgeFinish.mode === 'foil') {
-      const thicknessPt = this.getThicknessInPoints();
-      if (thicknessPt !== 28) {
+      if (this.state.plyCount < 2) {
         this.state.edgeFinish.mode = 'color';
+        console.log(`[Proofer] Edge finish foil mode disabled: requires 2+ layers, but plyCount is ${this.state.plyCount}`);
       }
     }
     
