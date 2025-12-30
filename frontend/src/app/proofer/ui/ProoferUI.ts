@@ -280,7 +280,6 @@ export class ProoferUI {
       const backMaterial = this.engineBridge.getMaterial(plyIndex, 'back');
       
       const diecutEnabled = state.optionStates?.diecut?.enabled === true;
-      // Geometry diecut only for ply0
       const useDiecutGeometry = diecutEnabled && plyIndex === 0 && this.cardGeometry.usesDiecutGeometry();
 
       const sideMaterial = MaterialPipeline.createEdgeMaterial(new THREE.Color(1.0, 1.0, 1.0));
@@ -291,7 +290,7 @@ export class ProoferUI {
 
       if (plyMaterials && frontMaterial && backMaterial) {
         const { geometry, centerZ } = useDiecutGeometry
-          ? this.cardGeometry.createPlyExtrudedGeometry(plyIndex)
+          ? this.cardGeometry.createPlyExtrudedGeometryFromDiecut(plyIndex, this.cardGeometry.getDiecutOutlines())
           : this.cardGeometry.createPlyBoxGeometry(plyIndex);
 
         if (!plyMesh) {

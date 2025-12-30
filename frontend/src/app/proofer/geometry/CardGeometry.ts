@@ -311,6 +311,13 @@ export class CardGeometry {
   }
 
   /**
+   * Get diecut outlines (from SVG)
+   */
+  getDiecutOutlines(): THREE.Vector2[][] {
+    return this.diecutOutlines || [];
+  }
+
+  /**
    * Create box geometry for a specific ply (with actual thickness)
    * Used in multi-ply architecture where each mesh is a full box (not just a face)
    * 
@@ -356,90 +363,57 @@ export class CardGeometry {
    */
   public createPlyExtrudedGeometryFromDiecut(
     plyIndex: number,
-    diecutOutlines: THREE.Vector2[][],
+    diecutOutlines: Array<Array<THREE.Vector2>>
   ): { geometry: THREE.ExtrudeGeometry; centerZ: number } {
     const plyThickness = PLY_THICKNESS_MM;
-    const spacingBetweenPlies = plyThickness * this.spacingMultiplier;
 
+    // Match ply stacking math used by createPlyBoxGeometry
+    const spacingBetweenPlies = plyThickness * this.spacingMultiplier;
     const totalStackHeight = spacingBetweenPlies * this.plyCount;
     const totalHalfStackHeight = totalStackHeight / 2;
     const centerZ = totalHalfStackHeight - (plyIndex + 0.5) * spacingBetweenPlies;
 
-    const outerFallback = this.getRoundedRectContourVec2_();
+    const halfW = this.width / 2;
+    const halfH = this.height / 2;
 
-    // --- helpers ---
-    const sanitize = (pts: THREE.Vector2[]): THREE.Vector2[] => {
-      if (!pts || pts.length < 3) return [];
-      const out: THREE.Vector2[] = [];
-      const EPS = 1e-6;
-      for (const p of pts) {
-        const last = out[out.length - 1];
-        if (!last || last.distanceToSquared(p) > EPS) out.push(p.clone());
-      }
-      if (out.length >= 2 && out[0].distanceToSquared(out[out.length - 1]) < EPS) out.pop();
-      return out.length >= 3 ? out : [];
-    };
+    // --- Outer silhouette: rounded rect (always) ---
+    const contour = this.getRoundedRectContourVec2(); // must exist in your file; it returns Vector2[]
+    let outer = contour.map(p => new THREE.Vector2(p.x, p.y));
 
-    const area = (pts: THREE.Vector2[]) => {
-      let a = 0;
-      for (let i = 0; i < pts.length; i++) {
-        const p = pts[i], q = pts[(i + 1) % pts.length];
-        a += p.x * q.y - q.x * p.y;
-      }
-      return 0.5 * a;
-    };
-
-    const outlines = (diecutOutlines || []).map(sanitize).filter(o => o.length >= 3);
-
-    // Decide if SVG provides the OUTER silhouette or only HOLES.
-    const cardArea = Math.max(1e-6, this.width * this.height);
-    let outer = outerFallback;
-    let holes: THREE.Vector2[][] = [];
-
-    if (outlines.length > 0) {
-      let largest = outlines[0];
-      let best = Math.abs(area(largest));
-      for (const o of outlines) {
-        const a = Math.abs(area(o));
-        if (a > best) { best = a; largest = o; }
-      }
-
-      const isOuterSilhouette = (best / cardArea) > 0.55;
-
-      if (isOuterSilhouette) {
-        outer = largest;
-        holes = outlines.filter(o => o !== largest);
-      } else {
-        outer = outerFallback;
-        holes = outlines; // hole-only SVG
-      }
-    }
-
-    // Ensure winding: outer CCW, holes CW (Three expects this)
-    const ensureCCW = (pts: THREE.Vector2[]) => (area(pts) < 0 ? pts.slice().reverse() : pts.slice());
-    const ensureCW  = (pts: THREE.Vector2[]) => (area(pts) > 0 ? pts.slice().reverse() : pts.slice());
-
-    const outerPts = ensureCCW(outer);
+    // Triangulation: outer should be CCW
+    if (THREE.ShapeUtils.isClockWise(outer)) outer.reverse();
 
     const shape = new THREE.Shape();
-    shape.moveTo(outerPts[0].x, outerPts[0].y);
-    for (let i = 1; i < outerPts.length; i++) shape.lineTo(outerPts[i].x, outerPts[i].y);
+    shape.moveTo(outer[0].x, outer[0].y);
+    for (let i = 1; i < outer.length; i++) shape.lineTo(outer[i].x, outer[i].y);
     shape.closePath();
 
-    for (const hRaw of holes) {
-      const h = ensureCW(hRaw);
-      if (h.length < 3) continue;
+    // --- Holes: use SVG outlines; treat them as HOLES (never as outer) ---
+    const normLoop = (loop: THREE.Vector2[]) => {
+      const out: THREE.Vector2[] = [];
+      for (const p of loop) {
+        const v = new THREE.Vector2(p.x, p.y);
+        if (out.length === 0 || out[out.length - 1].distanceToSquared(v) > 1e-10) out.push(v);
+      }
+      if (out.length >= 2 && out[0].distanceToSquared(out[out.length - 1]) < 1e-10) out.pop();
+      return out;
+    };
+
+    for (const raw of diecutOutlines || []) {
+      let hole = normLoop(raw);
+      if (hole.length < 3) continue;
+
+      // Holes should be CW
+      if (!THREE.ShapeUtils.isClockWise(hole)) hole.reverse();
+
       const path = new THREE.Path();
-      path.moveTo(h[0].x, h[0].y);
-      for (let i = 1; i < h.length; i++) path.lineTo(h[i].x, h[i].y);
+      path.moveTo(hole[0].x, hole[0].y);
+      for (let i = 1; i < hole.length; i++) path.lineTo(hole[i].x, hole[i].y);
       path.closePath();
       shape.holes.push(path);
     }
 
-    // UVs for caps: map XY->UV like your existing print mapping (card centered at 0,0)
-    const halfW = this.width / 2;
-    const halfH = this.height / 2;
-
+    // UV generator for caps (print mapping)
     const UVGen = {
       generateTopUV: (_g: any, verts: number[], ia: number, ib: number, ic: number) => {
         const ax = verts[ia * 3], ay = verts[ia * 3 + 1];
@@ -464,9 +438,85 @@ export class CardGeometry {
       UVGenerator: UVGen as any,
     });
 
-    // Center around z=0 so mesh.position.z=centerZ matches your existing stacking
+    // Center around Z=0 (like BoxGeometry)
     geometry.translate(0, 0, -plyThickness / 2);
     geometry.computeVertexNormals();
+
+    // Flip back-cap U to avoid mirrored back
+    const nAttr = geometry.attributes.normal as THREE.BufferAttribute | undefined;
+    const uvAttr = geometry.attributes.uv as THREE.BufferAttribute | undefined;
+    if (nAttr && uvAttr) {
+      for (let i = 0; i < uvAttr.count; i++) {
+        const nz = nAttr.getZ(i);
+        if (nz < -0.85) uvAttr.setX(i, 1.0 - uvAttr.getX(i));
+      }
+      uvAttr.needsUpdate = true;
+    }
+
+    // TOP ANCHOR:     // --- Rebuild groups to 3 materials: sides/front/back ---
+    // --- Rebuild groups to 3 materials: sides/front/back ---
+    const posAttr = geometry.attributes.position as THREE.BufferAttribute;
+
+    // IMPORTANT:
+    // Some three builds return ExtrudeGeometry as NON-indexed.
+    // If we don't force an index, our 3-group remap never runs and the default
+    // ExtrudeGeometry groups (caps vs sides) will map materials incorrectly
+    // (caps become sideMaterial => white faces, sides become frontMaterial => "textured edges").
+    let idxAttr = geometry.getIndex();
+    if (!idxAttr && posAttr) {
+      const vertCount = posAttr.count;
+      const IndexArray = vertCount > 65535 ? Uint32Array : Uint16Array;
+      const idx = new IndexArray(vertCount);
+      for (let i = 0; i < vertCount; i++) idx[i] = i;
+      geometry.setIndex(new THREE.BufferAttribute(idx, 1));
+      idxAttr = geometry.getIndex();
+    }
+
+    if (idxAttr && posAttr) {
+      const src = idxAttr.array as unknown as ArrayLike<number>;
+      const sides: number[] = [];
+      const front: number[] = [];
+      const back: number[] = [];
+
+      const triNZ = (i0: number, i1: number, i2: number) => {
+        const ax = posAttr.getX(i0), ay = posAttr.getY(i0), az = posAttr.getZ(i0);
+        const bx = posAttr.getX(i1), by = posAttr.getY(i1), bz = posAttr.getZ(i1);
+        const cx = posAttr.getX(i2), cy = posAttr.getY(i2), cz = posAttr.getZ(i2);
+        const abx = bx - ax, aby = by - ay, abz = bz - az;
+        const acx = cx - ax, acy = cy - ay, acz = cz - az;
+        const nx = aby * acz - abz * acy;
+        const ny = abz * acx - abx * acz;
+        const nz = abx * acy - aby * acx;
+        const len = Math.sqrt(nx * nx + ny * ny + nz * nz) || 1.0;
+        return nz / len;
+      };
+
+      for (let t = 0; t < src.length; t += 3) {
+        const i0 = Number(src[t]);
+        const i1 = Number(src[t + 1]);
+        const i2 = Number(src[t + 2]);
+        const nz = triNZ(i0, i1, i2);
+
+        // Caps are ~ +/-Z normals; walls are ~0 Z normals
+        if (Math.abs(nz) > 0.85) {
+          if (nz > 0) front.push(i0, i1, i2);
+          else back.push(i0, i1, i2);
+        } else {
+          sides.push(i0, i1, i2);
+        }
+      }
+
+      const merged = sides.concat(front, back);
+      const needs32 = posAttr.count > 65535;
+      geometry.setIndex(new THREE.BufferAttribute(needs32 ? new Uint32Array(merged) : new Uint16Array(merged), 1));
+
+      geometry.clearGroups();
+      // Material index mapping must match EngineBridge.getPlyExtrudeMaterials():
+      // [0]=sides, [1]=front, [2]=back
+      geometry.addGroup(0, sides.length, 0);
+      geometry.addGroup(sides.length, front.length, 1);
+      geometry.addGroup(sides.length + front.length, back.length, 2);
+    }
 
     return { geometry, centerZ };
   }
