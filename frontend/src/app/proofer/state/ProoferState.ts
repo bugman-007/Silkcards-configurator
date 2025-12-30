@@ -184,6 +184,17 @@ export interface OptionState {
 }
 
 /**
+ * Edge Finish State
+ * 
+ * State for edge finish (color/foil on card edges)
+ */
+export interface EdgeFinishState {
+  enabled: boolean;
+  mode: 'color' | 'foil'; // 'color' for color tint, 'foil' for metallic foil
+  color: string; // Hex color string (e.g., '#ff0000')
+}
+
+/**
  * Artwork Transform
  * 
  * Transform applied to artwork layer
@@ -235,6 +246,9 @@ export interface ProoferState {
     diecut: OptionState;
   };
   
+  // Edge finish state
+  edgeFinish: EdgeFinishState;
+  
   // Plate assignments (plateId -> layerType mapping)
   plateAssignments: Record<string, { type: LayerType; side: CardSide }>;
   
@@ -279,6 +293,12 @@ export function createDefaultProoferState(): ProoferState {
       uv: { enabled: false, side: 'front' },
       emboss: { enabled: false, side: 'front' },
       diecut: { enabled: false, side: 'front' }
+    },
+    
+    edgeFinish: {
+      enabled: false,
+      mode: 'color',
+      color: '#ffffff'
     },
     
     plateAssignments: {},

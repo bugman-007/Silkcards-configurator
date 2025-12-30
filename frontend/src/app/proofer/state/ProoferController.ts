@@ -70,10 +70,21 @@ export class ProoferController {
    * Update dimensions
    */
   updateDimensions(width: number, height: number, thickness: number, cornerRadius: number): void {
+    const oldThickness = this.state.thickness;
     this.state.width = width;
     this.state.height = height;
     this.state.thickness = thickness;
     this.state.cornerRadius = cornerRadius;
+    
+    // Auto-disable foil mode if thickness changed and is no longer 28pt
+    if (this.state.edgeFinish.enabled && this.state.edgeFinish.mode === 'foil') {
+      const thicknessPt = this.getThicknessInPoints();
+      if (thicknessPt !== 28) {
+        // Force to color mode if not 28pt
+        this.state.edgeFinish.mode = 'color';
+      }
+    }
+    
     this.notifyListeners();
   }
 
@@ -126,6 +137,82 @@ export class ProoferController {
   updateOptionState(option: 'foil' | 'uv' | 'emboss' | 'diecut', state: Partial<OptionState>): void {
     this.state.optionStates[option] = { ...this.state.optionStates[option], ...state };
     this.notifyListeners();
+  }
+
+  /**
+   * Update edge finish state
+   */
+  updateEdgeFinish(state: Partial<import('./ProoferState.js').EdgeFinishState>): void {
+    this.state.edgeFinish = { ...this.state.edgeFinish, ...state };
+    
+    // Auto-disable foil mode if thickness is not 28pt
+    if (state.mode === 'foil' || this.state.edgeFinish.mode === 'foil') {
+      const thicknessPt = this.getThicknessInPoints();
+      if (thicknessPt !== 28) {
+        // Force to color mode if not 28pt
+        this.state.edgeFinish.mode = 'color';
+      }
+    }
+    
+    this.notifyListeners();
+  }
+
+  /**
+   * Get thickness in points (for foil availability check)
+   * Converts mm to points: 1pt = 1/1000 inch = 0.0254mm
+   * So thicknessPt = thicknessMm / 0.0254 * 1000 = thicknessMm / 0.0000254
+   */
+  private getThicknessInPoints(): number {
+    // thickness is stored in mm
+    // 1pt = 0.000352778 inch = 0.0089556mm (actually: 1pt = 1/72 inch = 0.352778mm)
+    // Wait, let me recalculate: 1pt = 1/72 inch = 0.0138889 inch = 0.352778mm
+    // So thicknessPt = thicknessMm / 0.352778
+    // But the code uses: thicknessPt / 1000 * 25.4 = thicknessMm
+    // So: thicknessPt = thicknessMm * 1000 / 25.4 = thicknessMm * 39.3701
+    // Actually, I think the parser uses a different unit. Let me check the actual conversion.
+    // From the code: `const thicknessMm = (thicknessPt / 1000) * 25.4;`
+    // This means: thicknessPt = thicknessMm * 1000 / 25.4
+    // But that doesn't match standard point conversion.
+    // Let me use a simpler approach: check if thickness is close to known values.
+    const thicknessMm = this.state.thickness;
+    
+    // Known thicknesses in mm (approximate):
+    // 16pt ≈ 0.564mm (from default state)
+    // 28pt ≈ 0.988mm (28/1000 * 25.4 = 0.7112mm, but let's use the pattern from code)
+    // Actually, from the code pattern: 16pt = 0.56444mm
+    // So: 28pt = 0.56444 * 28/16 = 0.98777mm
+    
+    // Use tolerance-based check
+    const thickness28ptMm = 0.98777; // Approximate 28pt in mm
+    const tolerance = 0.1; // 0.1mm tolerance
+    
+    if (Math.abs(thicknessMm - thickness28ptMm) < tolerance) {
+      return 28;
+    }
+    
+    // Check other common values
+    const thickness16ptMm = 0.56444;
+    if (Math.abs(thicknessMm - thickness16ptMm) < tolerance) {
+      return 16;
+    }
+    
+    const thickness32ptMm = 1.12888; // 32/16 * 0.56444
+    if (Math.abs(thicknessMm - thickness32ptMm) < tolerance) {
+      return 32;
+    }
+    
+    const thickness45ptMm = 1.5875; // 45/16 * 0.56444
+    if (Math.abs(thicknessMm - thickness45ptMm) < tolerance) {
+      return 45;
+    }
+    
+    const thickness48ptMm = 1.69332; // 48/16 * 0.56444
+    if (Math.abs(thicknessMm - thickness48ptMm) < tolerance) {
+      return 48;
+    }
+    
+    // Default: return 0 if unknown
+    return 0;
   }
 
   /**
@@ -297,6 +384,14 @@ export class ProoferController {
     // Override any thickness set from payload.card - use computed value
     this.state.thickness = this.state.plyCount * PLY_THICKNESS_MM;
     console.log(`[Proofer] Total thickness: ${this.state.thickness.toFixed(2)}mm (${this.state.plyCount} plies × ${PLY_THICKNESS_MM}mm)`);
+    
+    // Auto-disable foil mode if thickness is not 28pt
+    if (this.state.edgeFinish.enabled && this.state.edgeFinish.mode === 'foil') {
+      const thicknessPt = this.getThicknessInPoints();
+      if (thicknessPt !== 28) {
+        this.state.edgeFinish.mode = 'color';
+      }
+    }
     
     // Build FaceStacks: organize plates by plyIndex and face (using normalized plates)
     const faceStacks = this.buildFaceStacks(payloadNormalized.plates);

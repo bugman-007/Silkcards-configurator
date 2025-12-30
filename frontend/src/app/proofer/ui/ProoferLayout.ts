@@ -8,6 +8,7 @@ import { FileUploadPanel } from './leftPanel/FileUploadPanel.js';
 import { ParsedLayersPanel } from './leftPanel/ParsedLayersPanel.js';
 import { ManualOverridePanel } from './leftPanel/ManualOverridePanel.js';
 import { PrintOptionsPanel } from './rightPanel/PrintOptionsPanel.js';
+import { EdgeFinishPanel } from './rightPanel/EdgeFinishPanel.js';
 import { LayerAssignmentPanel } from './rightPanel/LayerAssignmentPanel.js';
 import { ArtworkTransformPanel } from './rightPanel/ArtworkTransformPanel.js';
 import { ApprovalPanel } from './rightPanel/ApprovalPanel.js';
@@ -36,6 +37,7 @@ export class ProoferLayout {
   private parsedLayersPanel: ParsedLayersPanel;
   private manualOverridePanel: ManualOverridePanel;
   private printOptionsPanel: PrintOptionsPanel;
+  private edgeFinishPanel: EdgeFinishPanel;
   private layerAssignmentPanel: LayerAssignmentPanel;
   private artworkTransformPanel: ArtworkTransformPanel;
   private approvalPanel: ApprovalPanel;
@@ -223,6 +225,7 @@ export class ProoferLayout {
 
     // Right Panel Components
     this.printOptionsPanel = new PrintOptionsPanel(this.rightPanel, this.controller);
+    this.edgeFinishPanel = new EdgeFinishPanel(this.rightPanel, this.controller);
     this.layerAssignmentPanel = new LayerAssignmentPanel(this.rightPanel, this.controller);
     this.artworkTransformPanel = new ArtworkTransformPanel(this.rightPanel, this.controller);
     this.approvalPanel = new ApprovalPanel(this.rightPanel, this.controller);

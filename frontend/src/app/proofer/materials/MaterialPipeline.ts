@@ -118,6 +118,41 @@ export class MaterialPipeline {
   }
 
   /**
+   * Create edge material with edge finish support (color tint or foil)
+   * @param edgeFinish - Edge finish state (enabled, mode, color)
+   * @returns A MeshStandardMaterial with edge finish applied
+   */
+  static createEdgeMaterialWithFinish(edgeFinish?: {
+    enabled: boolean;
+    mode: 'color' | 'foil';
+    color: string;
+  }): THREE.MeshStandardMaterial {
+    if (!edgeFinish || !edgeFinish.enabled) {
+      // Default edge material (no finish)
+      return this.createEdgeStandardMaterial();
+    }
+
+    if (edgeFinish.mode === 'foil') {
+      // Cold Foil: metallic look with low roughness and high metalness
+      return new THREE.MeshStandardMaterial({
+        color: new THREE.Color(0.9, 0.75, 0.4), // Gold-ish foil color
+        roughness: 0.1, // Very shiny
+        metalness: 0.9, // Highly metallic
+        side: THREE.FrontSide
+      });
+    } else {
+      // Color mode: tint with selected color
+      const color = new THREE.Color(edgeFinish.color);
+      return new THREE.MeshStandardMaterial({
+        color: color,
+        roughness: 0.8,
+        metalness: 0.0,
+        side: THREE.FrontSide
+      });
+    }
+  }
+
+  /**
    * Create a placeholder texture
    */
   static createPlaceholderTexture(

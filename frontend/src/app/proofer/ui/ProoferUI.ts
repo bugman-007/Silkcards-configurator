@@ -152,7 +152,8 @@ export class ProoferUI {
     if (!this.plyMeshes.has(plyKey)) {
       const placeholderFront = this.createPlaceholderMaterial(true);
       const placeholderBack = this.createPlaceholderMaterial(false);
-      const edgeMat = MaterialPipeline.createEdgeStandardMaterial();
+      // Apply edge finish if enabled
+      const edgeMat = MaterialPipeline.createEdgeMaterialWithFinish(state.edgeFinish);
 
       // Get diecut outlines once (they may be empty)
       const diecutOutlines = this.cardGeometry.getDiecutOutlines();
@@ -282,7 +283,8 @@ export class ProoferUI {
       const diecutEnabled = state.optionStates?.diecut?.enabled === true;
       const useDiecutGeometry = diecutEnabled && plyIndex === 0 && this.cardGeometry.usesDiecutGeometry();
 
-      const sideMaterial = MaterialPipeline.createEdgeMaterial(new THREE.Color(1.0, 1.0, 1.0));
+      // Apply edge finish if enabled
+      const sideMaterial = MaterialPipeline.createEdgeMaterialWithFinish(state.edgeFinish);
 
       const plyMaterials = useDiecutGeometry
         ? this.engineBridge.getPlyExtrudeMaterials(plyIndex, sideMaterial)
@@ -321,7 +323,8 @@ export class ProoferUI {
           // Create placeholder ply mesh
           const placeholderFront = this.createPlaceholderMaterial(true);
           const placeholderBack = this.createPlaceholderMaterial(false);
-          const edgeMat = MaterialPipeline.createEdgeStandardMaterial();
+          // Apply edge finish if enabled
+      const edgeMat = MaterialPipeline.createEdgeMaterialWithFinish(state.edgeFinish);
 
           // Get diecut outlines once (they may be empty)
           const diecutOutlines = this.cardGeometry.getDiecutOutlines();
