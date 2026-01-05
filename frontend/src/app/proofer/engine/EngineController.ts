@@ -187,7 +187,7 @@ export class EngineController {
       if (mat.uniforms.uLightDirection) mat.uniforms.uLightDirection.value.copy(lightingInfo.direction);
       if (mat.uniforms.uLightColor) mat.uniforms.uLightColor.value.copy(lightingInfo.color);
     
-      // NEW: back-side key uniforms (foil uses these)
+      // NEW: back-side key uniforms (foil needs these)
       if (mat.uniforms.uBackLightDirection) mat.uniforms.uBackLightDirection.value.copy(lightingInfo.backDirection);
       if (mat.uniforms.uBackLightColor) mat.uniforms.uBackLightColor.value.copy(lightingInfo.backColor);
     
@@ -214,47 +214,47 @@ export class EngineController {
   /**
    * Get lighting information for shader materials
    */
-  // TOP ANCHOR: getLightingInfo(): {
 getLightingInfo(): {
   direction: THREE.Vector3;
   color: THREE.Color;
-  backDirection: THREE.Vector3; // NEW
-  backColor: THREE.Color;       // NEW
+
+  // NEW
+  backDirection: THREE.Vector3;
+  backColor: THREE.Color;
+
   ambient: THREE.Color;
   cameraPosition: THREE.Vector3;
 } {
   let lightDirection = new THREE.Vector3(0, 0, 1);
   let lightColor = new THREE.Color(1, 1, 1);
 
-  let backLightDirection = new THREE.Vector3(0, 0, -1);
-  let backLightColor = new THREE.Color(1, 1, 1);
+  // NEW
+  let backDirection = new THREE.Vector3(0, 0, -1);
+  let backColor = new THREE.Color(1, 1, 1);
 
   const keyLight = this.lightingController?.getKeyLight();
   if (keyLight) {
     const lightPos = new THREE.Vector3();
     const targetPos = new THREE.Vector3();
-
     keyLight.getWorldPosition(lightPos);
     keyLight.target.getWorldPosition(targetPos);
-
     lightDirection = targetPos.sub(lightPos).normalize();
     lightColor = keyLight.color.clone().multiplyScalar(keyLight.intensity);
   }
 
+  // NEW: read the actual back key light
   const backKey = this.lightingController?.getBackKeyLight?.();
   if (backKey) {
     const lightPos = new THREE.Vector3();
     const targetPos = new THREE.Vector3();
-
     backKey.getWorldPosition(lightPos);
     backKey.target.getWorldPosition(targetPos);
-
-    backLightDirection = targetPos.sub(lightPos).normalize();
-    backLightColor = backKey.color.clone().multiplyScalar(backKey.intensity);
+    backDirection = targetPos.sub(lightPos).normalize();
+    backColor = backKey.color.clone().multiplyScalar(backKey.intensity);
   } else {
-    // Safety fallback
-    backLightDirection = lightDirection.clone().negate();
-    backLightColor = lightColor.clone();
+    // Safety fallback if back light is missing
+    backDirection = lightDirection.clone().negate();
+    backColor = lightColor.clone();
   }
 
   let ambientColor = new THREE.Color(0.25, 0.25, 0.25);
@@ -266,8 +266,8 @@ getLightingInfo(): {
   return {
     direction: lightDirection,
     color: lightColor,
-    backDirection: backLightDirection,
-    backColor: backLightColor,
+    backDirection,
+    backColor,
     ambient: ambientColor,
     cameraPosition: this.camera.position.clone()
   };

@@ -60,7 +60,7 @@ export class MaterialPipeline {
         foilEnabled: { value: false },
         uvEnabled: { value: false },
         // Spot UV tuning
-        uUvBoost: { value: 1.35 },        // increase if you want shinier
+        uUvBoost: { value: 1.00 },        // increase if you want shinier
         uUvSpecPower: { value: 32.0 },    // lower = wider highlight area (Spot-UV visible over larger area)
         embossEnabled: { value: false },
         embossStrength: { value: 0.12 },

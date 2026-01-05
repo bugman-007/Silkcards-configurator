@@ -14,27 +14,25 @@ import * as THREE from 'three';
  */
 export class LightingController {
   private scene: THREE.Scene;
-  private keyLight!: THREE.DirectionalLight;
 
-  // NEW: back-side key light (always active)
+  private keyLight!: THREE.DirectionalLight;
+  private fillLight!: THREE.DirectionalLight;
+  private rimLight!: THREE.DirectionalLight;
+
+  // NEW: back-side key light used by shader uniforms
   private backKeyLight!: THREE.DirectionalLight;
 
-  private fillLight!: THREE.DirectionalLight;
-  private backFillLight!: THREE.DirectionalLight;
-  private rimLight!: THREE.DirectionalLight;
-  private backRimLight!: THREE.DirectionalLight;
   private ambientLight!: THREE.AmbientLight;
 
   private readonly neutralProofConfig = {
     ambient: 0.65,
     key: 0.8,
-    backKey: 0.8, // NEW
     fill: 0.4,
-    backFill: 0.4,
     rim: 0.6,
-    backRim: 0.6
-  };
 
+    // NEW
+    backKey: 0.8
+  };
   /**
    * Constructor
    */
@@ -47,39 +45,33 @@ export class LightingController {
    * Initialize all lights with Neutral Proof configuration
    */
   private initializeLights(): void {
-    // Ambient light
     this.ambientLight = new THREE.AmbientLight(0xffffff, this.neutralProofConfig.ambient);
     this.scene.add(this.ambientLight);
 
-    // Key light (front)
     this.keyLight = new THREE.DirectionalLight(0xffffff, this.neutralProofConfig.key);
     this.keyLight.position.set(60, 70, 60);
+    this.keyLight.target.position.set(0, 0, 0);
+    this.scene.add(this.keyLight.target);
     this.scene.add(this.keyLight);
 
-    // NEW: Key light (back)
+    // NEW: back key (mirrored Z)
     this.backKeyLight = new THREE.DirectionalLight(0xffffff, this.neutralProofConfig.backKey);
     this.backKeyLight.position.set(60, 70, -60);
+    this.backKeyLight.target.position.set(0, 0, 0);
+    this.scene.add(this.backKeyLight.target);
     this.scene.add(this.backKeyLight);
 
-    // Fill light
     this.fillLight = new THREE.DirectionalLight(0xffffff, this.neutralProofConfig.fill);
     this.fillLight.position.set(-40, 40, -30);
+    this.fillLight.target.position.set(0, 0, 0);
+    this.scene.add(this.fillLight.target);
     this.scene.add(this.fillLight);
 
-    // Back Fill light
-    this.backFillLight = new THREE.DirectionalLight(0xffffff, this.neutralProofConfig.backFill);
-    this.backFillLight.position.set(-40, 40, 30);
-    this.scene.add(this.backFillLight);
-
-    // Rim light
     this.rimLight = new THREE.DirectionalLight(0xffffff, this.neutralProofConfig.rim);
     this.rimLight.position.set(-50, 50, -70);
+    this.rimLight.target.position.set(0, 0, 0);
+    this.scene.add(this.rimLight.target);
     this.scene.add(this.rimLight);
-
-    // Back Rim light
-    this.backRimLight = new THREE.DirectionalLight(0xffffff, this.neutralProofConfig.backRim);
-    this.backRimLight.position.set(-50, 50, 70);
-    this.scene.add(this.backRimLight);
   }
 
   /**
@@ -97,16 +89,8 @@ export class LightingController {
     return this.fillLight;
   }
 
-  getBackFillLight(): THREE.DirectionalLight {
-    return this.backFillLight;
-  }
-
   getRimLight(): THREE.DirectionalLight {
     return this.rimLight;
-  }
-
-  getBackRimLight(): THREE.DirectionalLight {
-    return this.backRimLight;
   }
 
   getAmbientLight(): THREE.AmbientLight {
@@ -123,26 +107,22 @@ export class LightingController {
     }
     if (this.keyLight) {
       this.scene.remove(this.keyLight);
+      this.scene.remove(this.keyLight.target);
       this.keyLight.dispose();
     }
     if (this.backKeyLight) {
       this.scene.remove(this.backKeyLight);
+      this.scene.remove(this.backKeyLight.target);
       this.backKeyLight.dispose();
-    }
-    if (this.backFillLight) {
-      this.scene.remove(this.backFillLight);
-      this.backFillLight.dispose();
     }
     if (this.fillLight) {
       this.scene.remove(this.fillLight);
+      this.scene.remove(this.fillLight.target);
       this.fillLight.dispose();
-    }
-    if (this.backRimLight) {
-      this.scene.remove(this.backRimLight);
-      this.backRimLight.dispose();
     }
     if (this.rimLight) {
       this.scene.remove(this.rimLight);
+      this.scene.remove(this.rimLight.target);
       this.rimLight.dispose();
     }
   }
