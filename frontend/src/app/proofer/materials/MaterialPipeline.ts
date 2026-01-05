@@ -82,6 +82,8 @@ export class MaterialPipeline {
         // Lighting uniforms
         uLightDirection: { value: new THREE.Vector3(0, 0, 1) },
         uLightColor: { value: new THREE.Color(1.0, 1.0, 1.0) },
+        uBackLightDirection: { value: new THREE.Vector3(0, 0, -1) },
+        uBackLightColor: { value: new THREE.Color(1.0, 1.0, 1.0) },
         uAmbientColor: { value: new THREE.Color(0.3, 0.3, 0.3) },
         
         // Camera position for view-dependent effects

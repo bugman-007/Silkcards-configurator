@@ -40,6 +40,8 @@ uniform bool showMaskOnly;
 // Lighting uniforms
 uniform vec3 uLightDirection;
 uniform vec3 uLightColor;
+uniform vec3 uBackLightDirection;
+uniform vec3 uBackLightColor;
 uniform vec3 uAmbientColor;
 uniform vec3 uCameraPosition;
 
@@ -120,8 +122,21 @@ void main() {
     }
     
     // Calculate lighting with perturbed normal (or original if no emboss)
-    vec3 lightDir = normalize(-uLightDirection);
-    vec3 viewDir = normalize(uCameraPosition - vWorldPosition);
+    //
+    // IMPORTANT:
+    // vNormal is in VIEW space (normalMatrix * normal in vertex.glsl).
+    // With OrbitControls the CAMERA rotates, so we must also compute light/view directions in VIEW space.
+    // Otherwise foil/UV spec won't react correctly (especially on the back side).
+    vec3 lightDirWorld = normalize(-uLightDirection);
+    vec3 backLightDirWorld = normalize(-uBackLightDirection);
+
+    // Convert world-space light directions into view space
+    vec3 lightDir = normalize(mat3(viewMatrix) * lightDirWorld);
+    vec3 backLightDirVS = normalize(mat3(viewMatrix) * backLightDirWorld);
+
+    // View direction in view space: camera is at origin, so viewDir = -viewPosition
+    vec3 viewPos = (viewMatrix * vec4(vWorldPosition, 1.0)).xyz;
+    vec3 viewDir = normalize(-viewPos);
     
     // Diffuse lighting
     float NdotL = max(dot(N, lightDir), 0.0);
@@ -193,23 +208,50 @@ void main() {
     
     // Apply finish effects (shader is used for caps only; sides/walls are separate materials)
     {
-        
-        // Apply foil effect (mask-driven metallic BRDF)
+        // Apply foil effect (realistic metallic BRDF with Fresnel)
         if (foilEnabled) {
             vec4 foilTex = texture2D(uFoilMask, rotatedUv);
             float foilMaskValue = maskSample(foilTex);
-            if (foilMaskValue > 0.5) {
-                // Metallic foil color (gold)
+            if (foilMaskValue > 0.01) {
+                // Metallic foil color (gold) - can be adjusted for different foil types
                 vec3 foilColor = vec3(0.9, 0.75, 0.4);
                 
-                // Metallic reflection - use reflection vector for specular with perturbed normal
-                vec3 reflectDir = reflect(-lightDir, N);
-                float specular = pow(max(dot(reflectDir, viewDir), 0.0), 16.0);
+                // Foil strength from mask
+                float foilStrength = smoothstep(0.0, 1.0, foilMaskValue);
                 
-                // Blend foil with base color based on mask strength
-                float foilStrength = smoothstep(0.5, 1.0, foilMaskValue);
-                vec3 foilReflection = foilColor * (0.7 + 0.3 * specular);
-                litColor = mix(litColor, foilReflection, foilStrength * 0.8);
+                // Calculate view-dependent Fresnel for realistic metallic reflection
+                float NdotV = max(dot(N, viewDir), 0.0);
+                float fresnel = pow(1.0 - NdotV, 2.0); // Fresnel-Schlick approximation
+                
+                // Front light contribution
+                vec3 frontLightDir = lightDir;
+                vec3 frontHalfDir = normalize(frontLightDir + viewDir);
+                float frontNdotH = max(dot(N, frontHalfDir), 0.0);
+                float frontNdotL = max(dot(N, frontLightDir), 0.0);
+                
+                // Back light contribution (for viewing back side)
+                vec3 backKeyLightDir = backLightDirVS;
+                vec3 backHalfDir = normalize(backKeyLightDir + viewDir);
+                float backNdotH = max(dot(N, backHalfDir), 0.0);
+                float backNdotL = max(dot(N, backKeyLightDir), 0.0);
+                
+                // Metallic specular highlights (Cook-Torrance-like, simplified)
+                float specularPower = 32.0; // was 64.0 (too tight, reads "dead" most angles)
+                
+                float frontSpec = pow(frontNdotH, specularPower) * frontNdotL;
+                float backSpec  = pow(backNdotH,  specularPower) * backNdotL;
+                
+                // Combine both lights for realistic foil reflection
+                vec3 specularHighlight = uLightColor * frontSpec + uBackLightColor * backSpec;
+                
+                // Metallic reflection: keep your structure, just boost spec a bit
+                vec3 metallicReflection = foilColor * (0.4 + 0.6 * fresnel) + specularHighlight * 1.8;
+                
+                // Preserve foil color (opaque), let reflection modulate it
+                vec3 foilResult = mix(foilColor, metallicReflection, fresnel * 0.8 + 0.2);
+                
+                // OPAQUE: foil replaces base color; only edges feather due to mask AA
+                litColor = mix(litColor, foilResult, foilStrength);
             }
         }
         
