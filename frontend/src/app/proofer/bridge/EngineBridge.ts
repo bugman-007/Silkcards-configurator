@@ -381,7 +381,7 @@ export class EngineBridge {
     
     MaterialPipeline.updateFoil(frontMaterial, foilFrontEnabled);
     MaterialPipeline.updateUV(frontMaterial, uvFrontEnabled);
-    MaterialPipeline.updateEmbossParams(frontMaterial, embossFrontEnabled, 0.12, 1.0);
+    MaterialPipeline.updateEmbossParams(frontMaterial, embossFrontEnabled, state.embossStrength, 1.0);
     MaterialPipeline.updateDieCut(frontMaterial, diecutFrontEnabled);
     
     // Debug logging for uniform binding verification
@@ -453,7 +453,7 @@ export class EngineBridge {
     
     MaterialPipeline.updateFoil(backMaterial, foilBackEnabled);
     MaterialPipeline.updateUV(backMaterial, uvBackEnabled);
-    MaterialPipeline.updateEmbossParams(backMaterial, embossBackEnabled, 0.12, 1.0);
+    MaterialPipeline.updateEmbossParams(backMaterial, embossBackEnabled, state.embossStrength, 1.0);
     MaterialPipeline.updateDieCut(backMaterial, diecutBackEnabled);
     
     // Debug logging for uniform binding verification

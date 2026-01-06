@@ -90,7 +90,7 @@ void main() {
     embossGrad = vec2(dHx, dHy);
 
     vec3 bump = normalize(vec3(-dHx, -dHy, isFront ? 1.0 : -1.0));
-    float bumpMix = clamp(embossStrength * 15.0, 0.0, 1.0); // Increased from 6.0 to 12.0 for stronger normal perturbation
+    float bumpMix = clamp(embossStrength * 32.0, 0.0, 1.0); // Increased from 6.0 to 12.0 for stronger normal perturbation
 
     // If your card is rotated in world, this approximation is imperfect but won't make it invisible.
     N = normalize(mix(N0, bump, bumpMix));

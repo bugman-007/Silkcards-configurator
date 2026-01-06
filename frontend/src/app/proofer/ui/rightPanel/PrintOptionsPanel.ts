@@ -15,6 +15,9 @@ import { CardSide } from '../../state/ProoferState.js';
 export class PrintOptionsPanel {
   private container: HTMLElement;
   private controller: ProoferController;
+  private embossStrengthSlider: HTMLInputElement | null = null;
+  private embossStrengthValue: HTMLElement | null = null;
+  private embossStrengthDiv: HTMLElement | null = null;
 
   constructor(parent: HTMLElement, controller: ProoferController) {
     this.controller = controller;
@@ -45,6 +48,9 @@ export class PrintOptionsPanel {
       const optionDiv = this.createOptionControl(option);
       this.container.appendChild(optionDiv);
     });
+
+    // Add emboss strength slider (only visible when emboss is enabled)
+    this.createEmbossStrengthControl();
   }
 
   /**
@@ -125,6 +131,62 @@ export class PrintOptionsPanel {
   }
 
   /**
+   * Create emboss strength slider control
+   */
+  private createEmbossStrengthControl(): void {
+    this.embossStrengthDiv = document.createElement('div');
+    this.embossStrengthDiv.style.display = 'none';
+    this.embossStrengthDiv.style.marginTop = '16px';
+    this.embossStrengthDiv.style.paddingTop = '16px';
+    this.embossStrengthDiv.style.borderTop = '1px solid #ddd';
+
+    const label = document.createElement('label');
+    label.textContent = 'Emboss Strength';
+    label.style.display = 'block';
+    label.style.fontSize = '14px';
+    label.style.fontWeight = '600';
+    label.style.marginBottom = '8px';
+    this.embossStrengthDiv.appendChild(label);
+
+    const sliderWrapper = document.createElement('div');
+    sliderWrapper.style.display = 'flex';
+    sliderWrapper.style.alignItems = 'center';
+    sliderWrapper.style.gap = '12px';
+
+    this.embossStrengthSlider = document.createElement('input');
+    this.embossStrengthSlider.type = 'range';
+    this.embossStrengthSlider.min = '0';
+    this.embossStrengthSlider.max = '1';
+    this.embossStrengthSlider.step = '0.01';
+    this.embossStrengthSlider.value = '0.12';
+    this.embossStrengthSlider.style.flex = '1';
+    this.embossStrengthSlider.style.cursor = 'pointer';
+
+    this.embossStrengthValue = document.createElement('span');
+    this.embossStrengthValue.textContent = '0.12';
+    this.embossStrengthValue.style.minWidth = '40px';
+    this.embossStrengthValue.style.fontSize = '12px';
+    this.embossStrengthValue.style.textAlign = 'right';
+    this.embossStrengthValue.style.color = '#666';
+
+    sliderWrapper.appendChild(this.embossStrengthSlider);
+    sliderWrapper.appendChild(this.embossStrengthValue);
+    this.embossStrengthDiv.appendChild(sliderWrapper);
+
+    // Event listener for slider
+    this.embossStrengthSlider.addEventListener('input', () => {
+      const value = parseFloat(this.embossStrengthSlider!.value);
+      this.controller.updateEmbossStrength(value);
+      if (this.embossStrengthValue) {
+        this.embossStrengthValue.textContent = value.toFixed(2);
+      }
+      console.log(`[Proofer] Emboss strength changed to ${value.toFixed(2)}`);
+    });
+
+    this.container.appendChild(this.embossStrengthDiv);
+  }
+
+  /**
    * Setup state listeners
    */
   private setupListeners(): void {
@@ -137,6 +199,17 @@ export class PrintOptionsPanel {
           checkbox.checked = state.optionStates[option].enabled;
         }
       });
+
+      // Update emboss strength slider visibility and value
+      if (this.embossStrengthDiv && this.embossStrengthSlider && this.embossStrengthValue) {
+        const embossEnabled = state.optionStates.emboss.enabled;
+        this.embossStrengthDiv.style.display = embossEnabled ? 'block' : 'none';
+        
+        if (embossEnabled) {
+          this.embossStrengthSlider.value = state.embossStrength.toString();
+          this.embossStrengthValue.textContent = state.embossStrength.toFixed(2);
+        }
+      }
     });
   }
 }

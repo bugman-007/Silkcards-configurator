@@ -246,6 +246,9 @@ export interface ProoferState {
     diecut: OptionState;
   };
   
+  // Emboss strength (0.0 to 1.0)
+  embossStrength: number;
+  
   // Edge finish state
   edgeFinish: EdgeFinishState;
   
@@ -294,6 +297,8 @@ export function createDefaultProoferState(): ProoferState {
       emboss: { enabled: false, side: 'front' },
       diecut: { enabled: false, side: 'front' }
     },
+    
+    embossStrength: 0.12, // Default emboss strength
     
     edgeFinish: {
       enabled: false,

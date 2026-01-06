@@ -139,6 +139,14 @@ export class ProoferController {
   }
 
   /**
+   * Update emboss strength
+   */
+  updateEmbossStrength(strength: number): void {
+    this.state.embossStrength = Math.max(0.0, Math.min(1.0, strength));
+    this.notifyListeners();
+  }
+
+  /**
    * Update edge finish state
    */
   updateEdgeFinish(state: Partial<import('./ProoferState.js').EdgeFinishState>): void {
