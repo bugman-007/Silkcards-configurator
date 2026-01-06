@@ -778,11 +778,15 @@ export class ProoferController {
     // Auto-enable if masks exist
     if (hasFoilFront || hasFoilBack) {
       this.state.optionStates.foil.enabled = true;
-      if (hasFoilFront) {
+    
+      // Only force a side if foil exists on exactly one side.
+      // If both sides have foil, don't override whatever UI/user chose.
+      if (hasFoilFront && !hasFoilBack) {
         this.state.optionStates.foil.side = 'front';
-      } else if (hasFoilBack) {
+      } else if (hasFoilBack && !hasFoilFront) {
         this.state.optionStates.foil.side = 'back';
       }
+    
       console.log(`[Proofer] Auto-enabled foil (hasFront=${hasFoilFront}, hasBack=${hasFoilBack})`);
     }
 

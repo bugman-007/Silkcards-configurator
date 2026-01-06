@@ -366,9 +366,9 @@ export class EngineBridge {
 
     // Update finish toggles for front
     // Enable per-side: only enable if global toggle is on AND mask exists for this side
-    const foilFrontEnabled = state.optionStates.foil.enabled && state.optionStates.foil.side === 'front' && !!composites.frontFoilMask;
-    const uvFrontEnabled = state.optionStates.uv.enabled && state.optionStates.uv.side === 'front' && !!composites.frontUvMask;
-    const embossFrontEnabled = state.optionStates.emboss.enabled && state.optionStates.emboss.side === 'front' && !!composites.frontEmbossMask;
+    const foilFrontEnabled = state.optionStates.foil.enabled && !!composites.frontFoilMask;
+    const uvFrontEnabled = state.optionStates.uv.enabled && !!composites.frontUvMask;
+    const embossFrontEnabled = state.optionStates.emboss.enabled && !!composites.frontEmbossMask;
     
     // Geometry diecut is only intended for ply0 (the first ply)
     const geometryDiecutActive =
@@ -445,9 +445,9 @@ export class EngineBridge {
 
     // Update finish toggles for back
     // Enable per-side: only enable if global toggle is on AND mask exists for this side
-    const foilBackEnabled = state.optionStates.foil.enabled && state.optionStates.foil.side === 'back' && !!composites.backFoilMask;
-    const uvBackEnabled = state.optionStates.uv.enabled && state.optionStates.uv.side === 'back' && !!composites.backUvMask;
-    const embossBackEnabled = state.optionStates.emboss.enabled && state.optionStates.emboss.side === 'back' && !!composites.backEmbossMask;
+    const foilBackEnabled = state.optionStates.foil.enabled && !!composites.backFoilMask;
+    const uvBackEnabled = state.optionStates.uv.enabled && !!composites.backUvMask;
+    const embossBackEnabled = state.optionStates.emboss.enabled && !!composites.backEmbossMask;
     
     const diecutBackEnabled = state.optionStates.diecut.enabled && !!composites.diecutMask && !geometryDiecutActive;
     
