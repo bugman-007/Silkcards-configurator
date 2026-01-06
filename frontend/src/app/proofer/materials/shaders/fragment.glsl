@@ -90,9 +90,9 @@ void main() {
     embossGrad = vec2(dHx, dHy);
 
     vec3 bump = normalize(vec3(-dHx, -dHy, isFront ? 1.0 : -1.0));
-    float bumpMix = clamp(embossStrength * 6.0, 0.0, 1.0);
+    float bumpMix = clamp(embossStrength * 15.0, 0.0, 1.0); // Increased from 6.0 to 12.0 for stronger normal perturbation
 
-    // If your card is rotated in world, this approximation is imperfect but won’t make it invisible.
+    // If your card is rotated in world, this approximation is imperfect but won't make it invisible.
     N = normalize(mix(N0, bump, bumpMix));
   }
 
@@ -107,12 +107,12 @@ void main() {
     vec3 H = normalize(keyL + viewDir);
     float NdotH = max(dot(N, H), 0.0);
 
-    float grad = clamp(length(embossGrad) * 4.0, 0.0, 1.0);
-    float embossSpec = pow(NdotH, uEmbossSpecPower) * embossHeight * embossStrength * uEmbossSpecBoost;
-    embossSpec *= mix(0.35, 1.0, grad);
+    float grad = clamp(length(embossGrad) * 6.0, 0.0, 1.0); // Increased from 4.0 to 6.0 for stronger edge emphasis
+    float embossSpec = pow(NdotH, uEmbossSpecPower) * embossHeight * embossStrength * uEmbossSpecBoost * 1.8; // Increased by 1.8x for stronger highlights
+    embossSpec *= mix(0.5, 1.0, grad); // Increased minimum from 0.35 to 0.5 for more visible specular
 
     extraSpec += keyC * embossSpec;
-    ambient += vec3(embossHeight * embossStrength * 0.3);
+    ambient += vec3(embossHeight * embossStrength * 0.6); // Increased from 0.3 to 0.6 for stronger ambient boost
   }
 
   vec3 lit = baseColor * (ambient + diffuse) + extraSpec;
