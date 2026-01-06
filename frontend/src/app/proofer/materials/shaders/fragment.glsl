@@ -127,52 +127,71 @@ void main() {
     return;
   }
 
-  // Foil (wider + punchier; reacts from more angles)
-if (foilEnabled) {
-  float m = maskSample(texture2D(uFoilMask, uv));
-  if (m > 0.01) {
-    // make mid alpha read stronger (common in exported masks)
-    float strength = pow(clamp(m, 0.0, 1.0), 0.75);
+    // Foil (wider + punchier; reacts from more angles)
+  if (foilEnabled) {
+    vec4 foilTex = texture2D(uFoilMask, uv);
 
-    vec3 foilColor = vec3(0.9, 0.75, 0.4);
+    // Prefer alpha as coverage (avoids "ghost foil" from garbage RGB in fully transparent pixels)
+    float m = foilTex.a;
+    if (m <= 0.001) {
+      m = max(foilTex.r, max(foilTex.g, foilTex.b));
+    }
 
-    float NdotV = max(dot(N, viewDir), 0.0);
+    if (m > 0.01) {
+      // make mid alpha read stronger (common in exported masks)
+      float strength = pow(clamp(m, 0.0, 1.0), 0.75);
 
-    // Schlick Fresnel with high F0 (metal)
-    float F0 = 0.35;
-    float F  = F0 + (1.0 - F0) * pow(1.0 - NdotV, 5.0);
+      // Use the mask's RGB as foil tint (supports multiple foil colors in one combined mask).
+      // Un-premultiply if the loader/exporter stored premultiplied RGB.
+      vec3 rawColor = foilTex.rgb;
+      if (foilTex.a > 0.001) {
+        rawColor = rawColor / max(foilTex.a, 1e-4);
+      }
 
-    // Two-lobe spec: broad base + tight sparkle
-    float widePow  = 6.0;
-    float sharpPow = 80.0;
+      // If exporter left RGB black but alpha present, fall back to gold.
+      float rawMax = max(rawColor.r, max(rawColor.g, rawColor.b));
+      vec3 foilColor = (rawMax < 0.02) ? vec3(0.9, 0.75, 0.4) : clamp(rawColor, 0.0, 1.0);
 
-    // Front light
-    float NdotLf = max(dot(N, frontL), 0.0);
-    vec3  Hf     = normalize(frontL + viewDir);
-    float NdotHf = max(dot(N, Hf), 0.0);
-    float specF  =
-      (pow(NdotHf, widePow)  * 1.0 +
-       pow(NdotHf, sharpPow) * 0.35) * mix(0.25, 1.0, NdotLf);
+      // Approx sRGB -> linear (your foil masks are authored as "colors", not linear data)
+      foilColor = pow(foilColor, vec3(2.2));
 
-    // Back light (boost so backside doesn't read dull)
-    float NdotLb = max(dot(N, backL), 0.0);
-    vec3  Hb     = normalize(backL + viewDir);
-    float NdotHb = max(dot(N, Hb), 0.0);
-    float specB  =
-      (pow(NdotHb, widePow)  * 1.0 +
-       pow(NdotHb, sharpPow) * 0.35) * mix(0.25, 1.0, NdotLb) * 1.5;
+      float NdotV = max(dot(N, viewDir), 0.0);
 
-    vec3 spec = uLightColor * specF + uBackLightColor * specB;
+      // Schlick Fresnel with high F0 (metal)
+      float F0 = 0.35;
+      float F  = F0 + (1.0 - F0) * pow(1.0 - NdotV, 5.0);
 
-    // Stronger, wider foil reflection
-    vec3 metallic = foilColor * (0.20 + 0.80 * F) + spec * 4.0;
+      // Two-lobe spec: broad base + tight sparkle
+      float widePow  = 6.0;
+      float sharpPow = 80.0;
 
-    // Foil should "take over" more than paper
-    vec3 foilOut = mix(foilColor, metallic, 0.35 + 0.65 * F);
+      // Front light
+      float NdotLf = max(dot(N, frontL), 0.0);
+      vec3  Hf     = normalize(frontL + viewDir);
+      float NdotHf = max(dot(N, Hf), 0.0);
+      float specF  =
+        (pow(NdotHf, widePow)  * 1.0 +
+         pow(NdotHf, sharpPow) * 0.35) * mix(0.25, 1.0, NdotLf);
 
-    lit = mix(lit, foilOut, strength);
+      // Back light (boost so backside doesn't read dull)
+      float NdotLb = max(dot(N, backL), 0.0);
+      vec3  Hb     = normalize(backL + viewDir);
+      float NdotHb = max(dot(N, Hb), 0.0);
+      float specB  =
+        (pow(NdotHb, widePow)  * 1.0 +
+         pow(NdotHb, sharpPow) * 0.35) * mix(0.25, 1.0, NdotLb) * 1.5;
+
+      vec3 spec = uLightColor * specF + uBackLightColor * specB;
+
+      // Stronger, wider foil reflection
+      vec3 metallic = foilColor * (0.20 + 0.80 * F) + spec * 4.0;
+
+      // Foil should "take over" more than paper
+      vec3 foilOut = mix(foilColor, metallic, 0.35 + 0.65 * F);
+
+      lit = mix(lit, foilOut, strength);
+    }
   }
-}
 
   // Spot UV gloss (wider + less angle-picky)
 if (uvEnabled) {
