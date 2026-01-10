@@ -42,6 +42,23 @@ float maskSample(vec4 t) {
   return max(t.a, max(t.r, max(t.g, t.b)));
 }
 
+// Smooth a (often binary) emboss mask into a rounded bevel profile.
+// 3x3 Gaussian-ish blur: center*4 + cross*2 + diag*1 ( /16 )
+float embossHeightFiltered(vec2 uv, vec2 t) {
+  float c  = maskSample(texture2D(uEmbossMask, uv));
+  float l  = maskSample(texture2D(uEmbossMask, uv - vec2(t.x, 0.0)));
+  float r  = maskSample(texture2D(uEmbossMask, uv + vec2(t.x, 0.0)));
+  float d  = maskSample(texture2D(uEmbossMask, uv - vec2(0.0, t.y)));
+  float u  = maskSample(texture2D(uEmbossMask, uv + vec2(0.0, t.y)));
+
+  float ul = maskSample(texture2D(uEmbossMask, uv + vec2(-t.x,  t.y)));
+  float ur = maskSample(texture2D(uEmbossMask, uv + vec2( t.x,  t.y)));
+  float dl = maskSample(texture2D(uEmbossMask, uv + vec2(-t.x, -t.y)));
+  float dr = maskSample(texture2D(uEmbossMask, uv + vec2( t.x, -t.y)));
+
+  return (4.0 * c + 2.0 * (l + r + u + d) + (ul + ur + dl + dr)) * (1.0 / 16.0);
+}
+
 void main() {
   bool isFront = (uIsFront > 0.5);
   vec2 uv = vUv;
@@ -73,28 +90,50 @@ void main() {
   vec3 keyL = isFront ? frontL : backL;
   vec3 keyC = isFront ? uLightColor : uBackLightColor;
 
-  // Emboss (simple perturbation assuming card lies in XY plane)
+  // Emboss (rounded bevel from smoothed height)
   float embossHeight = 0.0;
-  vec2 embossGrad = vec2(0.0);
+  vec2  embossGrad   = vec2(0.0);
+  float embossEdge   = 0.0;
+  float embossAmp    = 0.0;
 
   if (embossEnabled) {
-    float h = maskSample(texture2D(uEmbossMask, uv));
-    embossHeight = h;
+  // If your masks are not 2048, change this constant to match export size
+  // (best is to pass a uniform texel size, but keep this for now).
+  vec2 baseTexel = vec2(1.0 / 2048.0);
 
-    vec2 texel = max(fwidth(uv) * 1.5, vec2(1.0 / 2048.0));
-    float hR = maskSample(texture2D(uEmbossMask, uv + vec2(texel.x, 0.0)));
-    float hU = maskSample(texture2D(uEmbossMask, uv + vec2(0.0, texel.y)));
+  // Slightly larger radius => softer, rounder highlight
+  vec2 t = baseTexel * 1.5;
 
-    float dHx = (hR - h) * embossMode;
-    float dHy = (hU - h) * embossMode;
-    embossGrad = vec2(dHx, dHy);
+  // Smoothed height (bevel profile)
+  float hC = embossHeightFiltered(uv, t);
 
-    vec3 bump = normalize(vec3(-dHx, -dHy, isFront ? 1.0 : -1.0));
-    float bumpMix = clamp(embossStrength * 32.0, 0.0, 1.0); // Increased from 6.0 to 12.0 for stronger normal perturbation
+  // Keep height stable + rounded transition
+  embossHeight = smoothstep(0.0, 1.0, hC);
 
-    // If your card is rotated in world, this approximation is imperfect but won't make it invisible.
-    N = normalize(mix(N0, bump, bumpMix));
-  }
+  // Central differences on smoothed height (less “angled” than forward diff)
+  float hL = embossHeightFiltered(uv - vec2(t.x, 0.0), t);
+  float hR = embossHeightFiltered(uv + vec2(t.x, 0.0), t);
+  float hD = embossHeightFiltered(uv - vec2(0.0, t.y), t);
+  float hU = embossHeightFiltered(uv + vec2(0.0, t.y), t);
+
+  float dHx = (hR - hL) * 0.5 * embossMode;
+  float dHy = (hU - hD) * 0.5 * embossMode;
+  embossGrad = vec2(dHx, dHy);
+
+  // Keep slopes gentle (your older *32 makes faceting obvious)
+  embossAmp = embossStrength * 4.0;
+
+  // Build perturbed normal; keep Z strong so it looks rounded instead of “chamfered”
+  float z = 1.0;
+  vec3 bump = normalize(vec3(-dHx * embossAmp, -dHy * embossAmp, (isFront ? z : -z)));
+
+  // Don’t fully replace the base normal; preserves “paper” behavior
+  float bumpMix = clamp(embossStrength, 0.0, 0.85);
+  N = normalize(mix(N0, bump, bumpMix));
+
+  // Edge factor for highlight control (soft rolloff)
+  embossEdge = smoothstep(0.04, 0.28, length(embossGrad) * embossAmp);
+}
 
   // Base diffuse/spec (key light per face)
   float NdotL = max(dot(N, keyL), 0.0);
@@ -103,17 +142,19 @@ void main() {
   vec3 ambient = uAmbientColor;
   vec3 extraSpec = vec3(0.0);
 
-  if (embossEnabled && embossHeight > 0.01) {
-    vec3 H = normalize(keyL + viewDir);
-    float NdotH = max(dot(N, H), 0.0);
+    if (embossEnabled && embossHeight > 0.01) {
+      vec3 H = normalize(keyL + viewDir);
+      float NdotH = max(dot(N, H), 0.0);
 
-    float grad = clamp(length(embossGrad) * 6.0, 0.0, 1.0); // Increased from 4.0 to 6.0 for stronger edge emphasis
-    float embossSpec = pow(NdotH, uEmbossSpecPower) * embossHeight * embossStrength * uEmbossSpecBoost * 1.8; // Increased by 1.8x for stronger highlights
-    embossSpec *= mix(0.5, 1.0, grad); // Increased minimum from 0.35 to 0.5 for more visible specular
+      // Wider = softer highlight
+      float p = max(6.0, uEmbossSpecPower * 0.25);
 
-    extraSpec += keyC * embossSpec;
-    ambient += vec3(embossHeight * embossStrength * 0.6); // Increased from 0.3 to 0.6 for stronger ambient boost
-  }
+      float embossSpec = pow(NdotH, p) * embossEdge;
+      embossSpec *= embossHeight * embossStrength * uEmbossSpecBoost;
+
+      extraSpec += keyC * embossSpec;
+      ambient += vec3(embossHeight * embossStrength * 0.20);
+    }
 
   vec3 lit = baseColor * (ambient + diffuse) + extraSpec;
 
